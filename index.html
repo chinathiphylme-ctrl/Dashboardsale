@@ -1368,9 +1368,11 @@ function recomputeDataset(){
   }));
   let leads = Array.from(leadMap.values());
 
-  // 2) exclude void / deleted leads
-  const excluded = leads.filter(r => !(Number(r['Lead Value']) > 0) || r['Lead Name'] === 'Deleted');
-  leads = leads.filter(r => Number(r['Lead Value']) > 0 && r['Lead Name'] !== 'Deleted');
+  // 2) exclude deleted leads only — do NOT exclude orders just because Lead Value is 0.
+  //    Some real closed-sale orders are legitimately free (e.g. "แลกรับสิทธิ์วันเกิด" birthday-privilege
+  //    giveaways, promo campaigns) and must still count as orders even though their value is ฿0.
+  const excluded = leads.filter(r => r['Lead Name'] === 'Deleted');
+  leads = leads.filter(r => r['Lead Name'] !== 'Deleted');
   const leadIds = new Set(leads.map(r => r['Lead ID']));
 
   if(leads.length === 0){
@@ -2164,7 +2166,7 @@ function renderFooter(){
   const el = document.getElementById('dashFooter');
   el.innerHTML = `
     <div>ไฟล์ที่ใช้: ${DATA.meta.fileNames.join(', ')} • ช่วงข้อมูล: ${DATA.meta.dateRange} • อัปเดตล่าสุด: ${DATA.meta.generatedAt}</div>
-    <div style="margin-top:4px;">ไม่รวมออเดอร์ที่ถูกยกเลิก/ลบ (มูลค่า 0 บาท) จำนวน ${DATA.meta.excludedCount} รายการ • ยอดขายคำนวณจาก Lead Value (รวมค่าจัดส่ง) แล้วบวก VAT 7% เพิ่มเข้าไป • "หน่วยที่ขาย" นับเฉพาะรายการสินค้า ไม่รวมค่าจัดส่ง • สัปดาห์เริ่มวันจันทร์ • เดือนนับตามปฏิทิน (วันที่ 1 ถึงวันสุดท้ายของเดือน) • ตัวเลขเงินทุกจุดในหน้านี้เป็นยอดหลังบวก VAT 7% แล้ว</div>
+    <div style="margin-top:4px;">ไม่รวมออเดอร์ที่ถูกลบ (Deleted) จำนวน ${DATA.meta.excludedCount} รายการ • นับรวมออเดอร์แจกฟรี/มูลค่า 0 บาท (เช่น สิทธิพิเศษวันเกิด แคมเปญแจกฟรี) เป็นออเดอร์ด้วย • ยอดขายคำนวณจาก Lead Value (รวมค่าจัดส่ง) แล้วบวก VAT 7% เพิ่มเข้าไป • "หน่วยที่ขาย" นับเฉพาะรายการสินค้า ไม่รวมค่าจัดส่ง • สัปดาห์เริ่มวันจันทร์ • เดือนนับตามปฏิทิน (วันที่ 1 ถึงวันสุดท้ายของเดือน) • ตัวเลขเงินทุกจุดในหน้านี้เป็นยอดหลังบวก VAT 7% แล้ว</div>
     <div style="margin-top:4px;">Export MC Template: "Price" คำนวณจากราคาหลังหักส่วนลด + VAT ((มูลค่าก่อน VAT ÷ จำนวนชิ้น) × 1.07) • ออเดอร์ที่ไม่มีคำว่า "COD"/"โอน" ใน Lead Intro จะไม่ export ให้ (ต้องตรวจสอบเองก่อน) • เขต กทม./ปริมณฑล ที่ใช้ตัดสิน DHL vs EMS คือ กรุงเทพฯ, นนทบุรี, ปทุมธานี, สมุทรปราการ, สมุทรสาคร, นครปฐม</div>
   `;
 }
