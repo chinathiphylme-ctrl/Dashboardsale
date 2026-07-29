@@ -371,6 +371,26 @@
       <button class="btn" id="btnBake" title="สร้างไฟล์ index.html ที่มีข้อมูลชุดนี้ฝังอยู่ในตัว สำหรับอัปขึ้น Netlify ให้ทีมเปิดดูได้โดยไม่ต้องอัปโหลด (ข้อมูลลูกค้าจะฝังในไฟล์)">สร้างไฟล์เว็บ (ฝังข้อมูล)</button>
       <button class="btn" id="btnReset">เริ่มใหม่</button>
     </div>
+    <div id="segBox" style="background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;">
+      <div style="font-size:13.5px;font-weight:700;margin-bottom:4px;">⬇ Export ข้อมูลดิบสำหรับ Segmentation</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.65;">ได้ไฟล์ Excel 5 ชีต — <b>customers</b> (Feature Table + RFM + gluta_segment พร้อมใช้), <b>segment_summary</b> (สรุปจำนวนต่อกลุ่ม), <b>orders</b>, <b>order_items</b> และ <b>dictionary</b></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <select id="segScope" style="padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);font-family:var(--font);font-size:12.5px;">
+          <option value="all">ช่วง: ทั้งหมดที่อัปโหลด</option>
+          <option value="current">ช่วง: ตามที่เลือกอยู่บนแดชบอร์ด</option>
+          <option value="range">ช่วง: กำหนดวันที่เอง</option>
+        </select>
+        <input type="date" id="segFrom" style="display:none;padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);font-family:var(--font);font-size:12.5px;">
+        <span id="segDash" style="display:none;color:var(--text-muted);font-size:12.5px;">–</span>
+        <input type="date" id="segTo" style="display:none;padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);font-family:var(--font);font-size:12.5px;">
+        <button class="btn primary" id="btnExportSeg">ดาวน์โหลด Excel (Segmentation)</button>
+      </div>
+      <label style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-secondary);margin-top:11px;cursor:pointer;font-weight:600;">
+        <input type="checkbox" id="segDropMasked" checked="" style="width:15px;height:15px;accent-color:var(--series-1);cursor:pointer;">
+        ตัดออเดอร์ที่ข้อมูลลูกค้าถูกปิดบังออก (ชื่อมี * เช่น ช******ม)
+      </label>
+      <div id="segNote" style="font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.6;"></div>
+    </div>
     <div id="targetBox" style="background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;">
       <input type="file" id="chatFileInput" accept=".xls,.xlsx,.json" multiple="" style="display:none;">
     </div>
@@ -895,6 +915,50 @@ const MC_OK_STATUS = new Set(['','n/a','new','pending','confirmed','instructed',
 
 const mcNorm = v => String(v==null?'':v).replace(/\s+/g,' ').trim();
 
+/* ==================== PHONE NORMALIZATION (TH) ====================
+   ปัญหาที่แก้:
+   1) เบอร์รูปแบบสากล 66894499089 / +66894499089 / 0066... -> ต้องเป็น 0894499089
+   2) ไฟล์เก่า (Google Sheet) เคยดึงเบอร์จากที่อยู่ด้วย regex ที่กินเลขรหัสไปรษณีย์ติดมาด้วย
+      เช่น "...อยุธยา13000 0814347070" -> ได้ "0000814347070"  (ที่ถูกคือ 0814347070)
+      ตัวช่วยด้านล่างจะ (ก) ดึงเบอร์จากข้อความที่อยู่ใหม่แบบมีขอบเขตชัดเจน และ
+      (ข) ถ้าเบอร์ที่เก็บไว้เพี้ยน จะกู้คืนจากที่อยู่ให้อัตโนมัติ                       */
+const digitsOnly = v => String(v==null?'':v).replace(/[^\d]/g,'');
+const isThaiMobile   = d => /^0[689]\d{8}$/.test(d);
+const isThaiLandline = d => /^0[2-7]\d{7,8}$/.test(d);
+const isThaiPhone    = d => isThaiMobile(d) || isThaiLandline(d);
+// 66xxxxxxxxx / 0066xxxxxxxxx -> 0xxxxxxxxx
+function normPhoneDigits(d){
+  d = digitsOnly(d);
+  if(/^0066\d{8,9}$/.test(d)) d = '0' + d.slice(4);
+  else if(/^66\d{8,9}$/.test(d)) d = '0' + d.slice(2);
+  return d;
+}
+// ดึงเบอร์ไทยจากข้อความอิสระ (ที่อยู่) — ต้องมีขอบเขตหน้า/หลัง ไม่ให้เลขรหัสไปรษณีย์ติดมา
+function extractThaiPhone(text){
+  let s = String(text || '').replace(/[‐‑‒–—]/g, '-');
+  s = s.replace(/(?:\+|00)?66[\s\-]?(?=[689]\d)/g, '0');   // +66 8x / 66 8x -> 08x
+  let m, out = [];
+  const reM = /(^|[^\d])(0[689](?:[ \-.]?\d){8})(?!\d)/g;
+  while((m = reM.exec(s))) out.push(digitsOnly(m[2]));
+  if(out.length) return out[0];
+  const reL = /(^|[^\d])(0[2-7](?:[ \-.]?\d){7,8})(?!\d)/g;
+  while((m = reL.exec(s))) out.push(digitsOnly(m[2]));
+  return out[0] || '';
+}
+// เบอร์ที่ใช้งานได้จริงของออเดอร์: ฟิลด์ Phone ก่อน -> ถ้าเพี้ยนค่อยกู้จากที่อยู่ -> สุดท้ายลองตัดจากตัวเลขที่ติดกันมา
+function cleanPhone(rawPhone, account){
+  const d = normPhoneDigits(rawPhone);
+  if(isThaiPhone(d)) return d;
+  const addr = account ? [account['Address Line 1'], account['Address Line 2']].filter(Boolean).join(' ') : '';
+  const fromAddr = extractThaiPhone(addr);
+  if(isThaiPhone(fromAddr)) return fromAddr;
+  const inner = d.match(/0[689]\d{8}/);            // เบอร์มือถือที่ฝังอยู่ในตัวเลขขยะ
+  if(inner) return inner[0];
+  return '';
+}
+// ข้อมูลที่ถูกปิดบัง (PDPA masking) เช่น "ช******ม", "เ**" — ถือว่าใช้ไม่ได้
+const isMaskedText = v => /\*/.test(String(v == null ? '' : v));
+
 function mcFindSheet(wb){
   const byName = wb.SheetNames.find(n => MC_SHEET_RE.test(n));
   if(byName) return byName;
@@ -1103,17 +1167,52 @@ function csResolveCols(aoa){
   return null;
 }
 
+/* รูปแบบที่ 2: รายงาน "สถิติผู้ใช้งาน" (ชีต " By staff" / " By time") — หัวตารางชั้นเดียว
+   ผู้ใช้ | ข้อความจากความคิดเห็น | ความคิดเห็นทั้งหมด | ตอบกลับความคิดเห็น |
+   จำนวนกล่องข้อความทั้งหมด | ตอบกลับกล่องข้อความ | เวลาตอบเฉลี่ย | หมายเลขโทรศัพท์ | ยอดออเดอร์ | อัตราการตอบรับ
+   รายงานนี้ "ไม่มี" การแยกลูกค้าใหม่/เก่า จึงคิด Conversion ได้แค่
+   ออเดอร์ที่สร้าง ÷ กล่องข้อความทั้งหมด  (ตัวหารกว้างกว่านิยามเดิม -> ติด flag ไว้เตือนบนการ์ด) */
+function csResolveFlatCols(aoa){
+  for(let i=0;i<Math.min(aoa.length,14);i++){
+    const h = (aoa[i]||[]).map(csNorm);
+    if(!h.length) continue;
+    const first = h[0] || '';
+    const isHead = /^(ผู้ใช้|เวลา|พนักงาน|วันที่|user|staff|time)/i.test(first);
+    if(!isHead) continue;
+    const findIdx = sub => h.findIndex(c => c && c.indexOf(sub) >= 0);
+    const orders = findIdx('ยอดออเดอร์');
+    const inboxTotal = h.findIndex(c => c && /กล่องข้อความทั้งหมด|กล่องข้อความ.*ทั้งหมด/.test(c));
+    if(orders < 0 || inboxTotal < 0) continue;
+    return { headerIdx:i, flat:true, col:{
+      label: 0,
+      interOld: -1,
+      interNew: inboxTotal,      // ตัวหาร = กล่องข้อความทั้งหมดที่รับ
+      interTotal: inboxTotal,
+      inbox: inboxTotal,
+      comments: findIdx('ความคิดเห็นทั้งหมด'),
+      newInbox: -1,
+      ordNew: orders,            // ตัวตั้ง = ออเดอร์ที่สร้าง
+      ordOld: -1,
+      ordTotal: orders,
+      replied: h.findIndex(c => c && /ตอบกลับกล่องข้อความ/.test(c)),
+      phones: findIdx('หมายเลขโทรศัพท์'),
+    }};
+  }
+  return null;
+}
+
 function csFindSheet(wb, kind){
   // kind: 'user' | 'time'
-  const want = kind === 'user' ? /by\s*user|ผู้ใช้/i : /by\s*time|เวลา/i;
+  const want = kind === 'user' ? /by\s*(user|staff|admin|employee)|ผู้ใช้|พนักงาน|แอดมิน/i : /by\s*time|เวลา|วันที่/i;
   return wb.SheetNames.find(n => want.test(n)) || null;
 }
 
 function isConvStatWorkbook(wb){
   return wb.SheetNames.some(sn => {
     const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, defval:null});
-    const head = aoa.slice(0,12).map(r => (r||[]).map(csNorm).join('|')).join('\n');
-    return head.includes(CS_GROUP_INTER) && head.includes(CS_GROUP_ORDER);
+    const head = aoa.slice(0,14).map(r => (r||[]).map(csNorm).join('|')).join('\n');
+    if(head.includes(CS_GROUP_INTER) && head.includes(CS_GROUP_ORDER)) return true;   // รายงานแบบหัว 2 ชั้น
+    return !!csResolveFlatCols(aoa);                                                   // รายงาน "สถิติผู้ใช้งาน" หัวชั้นเดียว
   });
 }
 
@@ -1121,25 +1220,35 @@ function parseConvStatWorkbook(wb, fileTag){
   const stats = { pageId:'', users:0, dates:[], skippedTotalRow:0, multiDay:false };
 
   // ---- หัวไฟล์: เลขเพจ ----
-  let pageId = '';
+  // รองรับทั้ง "หน้า: 516356078238016" และ "หน้า: Hylme ครบจบเรื่องไขมัน (516356078238016)"
+  let pageId = '', pageName = '';
   for(const sn of wb.SheetNames){
     const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, defval:null});
     for(let i=0;i<Math.min(aoa.length,6);i++){
       const t = csNorm((aoa[i]||[])[0]);
-      const m = t.match(/หน้า\s*:\s*(\d{6,})/) || t.match(/^(\d{10,})$/);
-      if(m){ pageId = m[1]; break; }
+      const head = t.match(/^หน้า\s*:\s*(.+)$/);
+      if(head){
+        const body = head[1];
+        const idm = body.match(/(\d{6,})/);
+        if(idm) pageId = idm[1];
+        pageName = body.replace(/[\(（]\s*\d{6,}\s*[\)）]/, '').trim();
+        if(pageId || pageName) break;
+      }
+      const only = t.match(/^(\d{10,})$/);
+      if(only){ pageId = only[1]; break; }
     }
-    if(pageId) break;
+    if(pageId || pageName) break;
   }
   stats.pageId = pageId;
-  const pageLabel = PANCAKE_PAGE_ID_MAP[pageId] || (pageId ? ('เพจ ' + pageId) : 'ไม่ระบุเพจ');
+  stats.pageName = pageName;
+  const pageLabel = PANCAKE_PAGE_ID_MAP[pageId] || pageName || (pageId ? ('เพจ ' + pageId) : 'ไม่ระบุเพจ');
 
   // ---- ชีต By time: ใช้เป็นตัวกำหนด "วันที่" ที่ไฟล์นี้ครอบคลุม ----
   const convTimeRows = [];
   const timeSn = csFindSheet(wb,'time');
   if(timeSn){
     const aoa = XLSX.utils.sheet_to_json(wb.Sheets[timeSn], {header:1, defval:null});
-    const res = csResolveCols(aoa);
+    const res = csResolveCols(aoa) || csResolveFlatCols(aoa);
     if(res){
       for(let i=res.headerIdx+1;i<aoa.length;i++){
         const r = aoa[i]||[]; const d = csDate(r[0]);
@@ -1148,7 +1257,8 @@ function parseConvStatWorkbook(wb, fileTag){
         convTimeRows.push({ date:d, pageId, pageLabel,
           interOld:g(res.col.interOld), interNew:g(res.col.interNew), interTotal:g(res.col.interTotal),
           inbox:g(res.col.inbox), comments:g(res.col.comments), newInbox:g(res.col.newInbox),
-          ordNew:g(res.col.ordNew), ordOld:g(res.col.ordOld), ordTotal:g(res.col.ordTotal) });
+          ordNew:g(res.col.ordNew), ordOld:g(res.col.ordOld), ordTotal:g(res.col.ordTotal),
+          statKind: res.flat ? 'userstat' : 'engagement' });
       }
     }
   }
@@ -1190,7 +1300,7 @@ function parseConvStatWorkbook(wb, fileTag){
   const userSn = csFindSheet(wb,'user');
   if(userSn){
     const aoa = XLSX.utils.sheet_to_json(wb.Sheets[userSn], {header:1, defval:null});
-    const res = csResolveCols(aoa);
+    const res = csResolveCols(aoa) || csResolveFlatCols(aoa);
     if(res){
       for(let i=res.headerIdx+1;i<aoa.length;i++){
         const r = aoa[i]||[]; const user = csNorm(r[0]);
@@ -1204,6 +1314,7 @@ function parseConvStatWorkbook(wb, fileTag){
           interOld:g(res.col.interOld), interNew:g(res.col.interNew), interTotal:g(res.col.interTotal),
           inbox:g(res.col.inbox), comments:g(res.col.comments), newInbox:g(res.col.newInbox),
           ordNew:g(res.col.ordNew), ordOld:g(res.col.ordOld), ordTotal:g(res.col.ordTotal),
+          statKind: res.flat ? 'userstat' : 'engagement',
         });
       }
     }
@@ -1401,8 +1512,7 @@ function oldChannelToIntro(ch){
 }
 function parseDelivery(text, social){
   const raw = String(text || '').replace(/\r/g,'');
-  const pm = raw.match(/0\d[\d\-\s]{7,12}\d/);
-  const phone = pm ? pm[0].replace(/[^\d]/g,'') : '';
+  const phone = extractThaiPhone(raw);   // เดิมใช้ regex กว้างเกินไป ทำให้รหัสไปรษณีย์ติดมากับเบอร์
   const firstLine = (raw.split('\n').map(x => x.trim()).filter(Boolean)[0] || '');
   let name = firstLine.split(/\s+\d/)[0].replace(/(โทร|tel|เบอร์)\.?\s*$/i,'').trim();
   if(!name) name = String(social || '').trim();
@@ -1913,7 +2023,7 @@ function buildMcRows(leads, products, contactAccountByLead){
     }
 
     const name = buildRecipientName(lead, contact);
-    const phone = contact && contact['Phone'] ? String(contact['Phone']).replace(/[^\d]/g,'') : '';
+    const phone = cleanPhone(contact && contact['Phone'], account);   // 66xxxxxxxxx -> 0xxxxxxxxx + ล้างเลขขยะ
     const { province, source } = resolveProvince(account);
     const address = buildAddress(account);
     const zip = account && account['Zipcode'] ? String(account['Zipcode']).trim() : '';
@@ -1921,7 +2031,8 @@ function buildMcRows(leads, products, contactAccountByLead){
 
     const notes = [];
     if(!name) notes.push('ไม่มีชื่อผู้รับ');
-    if(!phone) notes.push('ไม่มีเบอร์โทร');
+    else if(isMaskedText(name)) notes.push('ชื่อผู้รับถูกปิดบัง (มี *) — ต้องแก้ก่อนส่ง');
+    if(!phone) notes.push('ไม่มีเบอร์โทรที่ใช้ได้');
     if(!address) notes.push('ไม่มีที่อยู่');
     if(!postcode) notes.push('ไม่มีรหัสไปรษณีย์');
     if(source === 'unknown') notes.push('หาจังหวัดไม่พบ ระบบใช้ค่าเริ่มต้น = ต่างจังหวัด (EMS) กรุณาตรวจสอบที่อยู่/แก้ไข Delivery mode เอง');
@@ -2078,8 +2189,9 @@ function buildPosRows(leads, products){
     const inclVat  = r2(net + vat);             // ยอดรวม VAT (ก่อนปัดเศษ)
     const rounding = r2(netTotal - inclVat);    // ยอดปัดเศษ (ให้ยอดสุทธิเป็นเลขกลม)
     const taxType  = POS_ADD_VAT ? 'Exclude' : 'None';
-    const contact  = (DATA.contactAccountByLead.get(id) || {}).contact;
-    const phone    = contact && contact['Phone'] ? String(contact['Phone']).replace(/[^\d]/g,'') : '';
+    const __ca     = DATA.contactAccountByLead.get(id) || {};
+    const contact  = __ca.contact;
+    const phone    = cleanPhone(contact && contact['Phone'], __ca.account);
     const cashier  = mapPosCashier(lead['Current User Name']);
     const payTransfer = payType === 'โอน' ? netTotal : 0;   // AD Payment MBanking = ยอดโอน
     const payDelivery = payType === 'COD' ? netTotal : 0;   // AF Payment Delivery = ยอด COD/ปลายทาง
@@ -2431,7 +2543,7 @@ function recomputeDataset(){
     // ---- Conversion รายคน (แอดมิน) จากไฟล์สถิติ Pancake ----
     // ตัวหาร = ลูกค้าใหม่ที่ทักเข้ามา, ตัวตั้ง = คำสั่งซื้อจากลูกค้าใหม่
     const periodDateSet = new Set(periodDates);
-    const personAgg = {}; let skippedRange = false;
+    const personAgg = {}; let skippedRange = false; const statKinds = new Set();
     convStatUsers.forEach(r => {
       const ds = r.dates || [];
       // ไฟล์ช่วงหลายวัน: นับเฉพาะเมื่อ "ทุกวัน" อยู่ในช่วงที่เลือก (กันนับครึ่ง ๆ)
@@ -2439,6 +2551,7 @@ function recomputeDataset(){
       const key = r.userMapped || r.user;
       if(!personAgg[key]) personAgg[key] = { name:key, rawNames:new Set(), isAdmin:r.isAdmin, pages:new Set(),
         interNew:0, interOld:0, interTotal:0, newInbox:0, ordNew:0, ordOld:0, ordTotal:0 };
+      statKinds.add(r.statKind || 'engagement');
       const a = personAgg[key];
       a.rawNames.add(r.user); a.pages.add(r.pageLabel); if(!r.isAdmin) a.isAdmin = false;
       a.interNew += r.interNew; a.interOld += r.interOld; a.interTotal += r.interTotal;
@@ -2457,7 +2570,9 @@ function recomputeDataset(){
       s.interNew += x.interNew; s.ordNew += x.ordNew; s.ordTotal += x.ordTotal; s.sales += x.sales;
       s.ordersFromLeads += x.ordersFromLeads; return s;
     }, { interNew:0, ordNew:0, ordTotal:0, sales:0, ordersFromLeads:0 });
-    const personConv = { rows: personRows, skippedRange, total: Object.assign(pcT, {
+    const personConv = { rows: personRows, skippedRange,
+      statKind: statKinds.size > 1 ? 'mixed' : (statKinds.values().next().value || ''),
+      total: Object.assign(pcT, {
       conv: pcT.interNew ? pcT.ordNew / pcT.interNew : null,
       sales: Math.round(pcT.sales*100)/100,
       aov: pcT.ordersFromLeads ? Math.round(pcT.sales/pcT.ordersFromLeads*100)/100 : 0,
@@ -2546,6 +2661,7 @@ function recomputeDataset(){
     },
     contactAccountByLead,
     days, weeks, months,
+    allLeads: validLeads, allProducts: products,
   };
   return true;
 }
@@ -3083,11 +3199,22 @@ function renderConversionPerson(){
   if(!pc || !pc.rows.length){
     host.innerHTML = `<div class="card" style="margin-bottom:16px;">
       <div class="card-head"><div><h3>Conversion รายคน — แอดมิน</h3>
-      <div class="card-sub">ยังไม่มีไฟล์สถิติของช่วงนี้ • export จาก Pancake &gt; สถิติ (ได้ 2 ชีต " By user" / " By time") แล้วอัปโหลดเข้ามา — แนะนำ export <b>ทีละวัน</b> เพื่อให้ดูรายคนแบบรายวันได้${pc && pc.skippedRange ? ' • มีไฟล์ที่เป็นช่วงหลายวันซึ่งไม่ครอบคลุมช่วงที่เลือก จึงยังไม่ถูกนำมารวม' : ''}</div></div></div></div>`;
+      <div class="card-sub">ยังไม่มีไฟล์สถิติของช่วงนี้ • export จาก Pancake &gt; สถิติ แล้วอัปโหลดเข้ามา — รองรับ 2 รูปแบบ: <b>สถิติการเข้าร่วม</b> (หัวตาราง 2 ชั้น มีคอลัมน์ "ลูกค้าใหม่" / "จากลูกค้าใหม่" — แม่นที่สุด) และ <b>สถิติผู้ใช้งาน</b> (ชีต " By staff" มีคอลัมน์ "จำนวนกล่องข้อความทั้งหมด" + "ยอดออเดอร์") • แนะนำ export <b>ทีละวัน</b> และ <b>ทีละเพจ</b>${pc && pc.skippedRange ? ' • มีไฟล์ที่เป็นช่วงหลายวันซึ่งไม่ครอบคลุมช่วงที่เลือก จึงยังไม่ถูกนำมารวม' : ''}</div></div></div></div>`;
     return;
   }
 
   const pctTxt = v => v==null ? '—' : (v*100).toFixed(1)+'%';
+  // รายงาน "สถิติผู้ใช้งาน" ไม่มีคอลัมน์ลูกค้าใหม่ ตัวหารจึงเป็น "กล่องข้อความทั้งหมด" — ต้องบอกให้ชัด
+  const isUS = pc.statKind === 'userstat', isMixed = pc.statKind === 'mixed';
+  const L = {
+    hero:  isUS ? 'กล่องข้อความที่รับ' : 'คนทักเข้ามาใหม่',
+    denom: isUS ? 'กล่องข้อความ' : 'ทักเข้ามาใหม่',
+    numer: isUS ? 'ออเดอร์ที่สร้าง' : 'ปิดได้ (ลูกค้าใหม่)',
+    heroSub: isUS ? 'สร้างออเดอร์ได้' : 'ปิดได้',
+    sub: isUS
+      ? 'ที่มา: รายงาน <b>สถิติผู้ใช้งาน</b> (ชีต " By staff") — รายงานนี้<b>ไม่มี</b>การแยกลูกค้าใหม่/เก่า ตัวหารจึงเป็น <b>กล่องข้อความทั้งหมดที่รับ</b> ไม่ใช่เฉพาะลูกค้าใหม่ ตัวเลข % จึงเทียบกับเป้า Conversion เดิมตรง ๆ ไม่ได้'
+      : 'คนทักเข้ามา = <b>ลูกค้าใหม่</b> • ปิดการขาย = <b>คำสั่งซื้อจากลูกค้าใหม่</b>'
+  };
   const tConv = TARGETS.adminConv, tAov = TARGETS.adminAov;
   const okColor = 'var(--good)', badColor = 'var(--critical)';
 
@@ -3114,12 +3241,12 @@ function renderConversionPerson(){
 
   host.innerHTML = `<div class="card" style="margin-bottom:16px;">
     <div class="card-head">
-      <div><h3>Conversion รายคน — แอดมิน</h3>
-      <div class="card-sub">คนทักเข้ามา = <b>ลูกค้าใหม่</b> • ปิดการขาย = <b>คำสั่งซื้อจากลูกค้าใหม่</b> • เป้า Conversion ${(tConv*100).toFixed(0)}% / AOV ${fmtBaht(tAov)}</div></div>
+      <div><h3>Conversion รายคน — แอดมิน${isUS ? ' <span class="pf-pill" style="background:var(--warning);color:#141412;">นิยามกว้าง</span>' : ''}</h3>
+      <div class="card-sub">${L.sub}${isMixed ? ' <b style="color:var(--warning);">• ช่วงนี้มีไฟล์สถิติ 2 รูปแบบปนกัน ตัวเลขรวมอาจไม่เทียบกันตรง ๆ</b>' : ''} • เป้า Conversion ${(tConv*100).toFixed(0)}% / AOV ${fmtBaht(tAov)}</div></div>
     </div>
     <div class="conv-hero-row">
-      <div class="conv-hero"><div class="lbl">คนทักเข้ามาใหม่</div><div class="val">${fmtNum(t.interNew)}</div>
-        <div class="sub">ปิดได้ ${fmtNum(t.ordNew)} ราย</div></div>
+      <div class="conv-hero"><div class="lbl">${L.hero}</div><div class="val">${fmtNum(t.interNew)}</div>
+        <div class="sub">${L.heroSub} ${fmtNum(t.ordNew)} ราย</div></div>
       <div class="conv-hero"><div class="lbl">Conversion รวม</div>
         <div class="val" style="color:${t.conv==null?'inherit':(tHit?'#7ee787':'#ff9d9d')}">${pctTxt(t.conv)}</div>
         <div class="sub">เป้า ${(tConv*100).toFixed(0)}% ${t.conv!=null?(tHit?'• ถึงเป้า':'• ต่ำกว่าเป้า '+((tConv-t.conv)*100).toFixed(1)+' จุด'):''}</div></div>
@@ -3130,7 +3257,7 @@ function renderConversionPerson(){
     <div style="overflow-x:auto;">
     <table class="conv-table">
       <thead><tr>
-        <th>ผู้ใช้</th><th>ทักเข้ามาใหม่</th><th>ปิดได้ (ลูกค้าใหม่)</th>
+        <th>ผู้ใช้</th><th>${L.denom}</th><th>${L.numer}</th>
         <th>Conversion</th><th>ออเดอร์รวม</th><th>ยอดขาย</th><th>AOV</th>
       </tr></thead>
       <tbody>${rows}
@@ -3223,6 +3350,399 @@ document.getElementById('productMetricSeg').addEventListener('click', e => {
 });
 
 // ปุ่มสร้างไฟล์เว็บที่ฝังข้อมูลไว้ (สำหรับอัปขึ้น Netlify ให้ทีมดู)
+/* ==================== SEGMENTATION EXPORT ====================
+   ส่งออกข้อมูลดิบระดับออเดอร์ + รายการสินค้า เพื่อนำไปสร้าง Feature Table / ทำ Segmentation ต่อ
+   - orders      : 1 แถว = 1 ออเดอร์  (customer_id, วันที่, ช่องทาง, ยอด, จำนวนชิ้น, SKU ที่ซื้อ)
+   - order_items : 1 แถว = 1 บรรทัดสินค้า (join กลับด้วย order_id)
+   - dictionary  : คำอธิบายคอลัมน์
+   customer_id ใช้ "เบอร์โทร" เป็นตัวรวมลูกค้าซ้ำ ถ้าไม่มีเบอร์จะ fallback เป็น LEAD-<Lead ID> */
+function segScopeRows(){
+  var mode = document.getElementById('segScope').value;
+  if(mode === 'current'){
+    var p = currentPeriod();
+    return { leads: (p && p._rawLeads) || [], products: (p && p._rawProducts) || [],
+             tag: (p && (p.range || p.label)) || 'period', label: (p && (p.range || p.label)) || '' };
+  }
+  if(mode === 'range'){
+    var from = document.getElementById('segFrom').value;
+    var to   = document.getElementById('segTo').value;
+    var leads = (DATA.allLeads || []).filter(function(r){
+      return (!from || r.__date >= from) && (!to || r.__date <= to);
+    });
+    var ids = new Set(leads.map(function(r){ return r['Lead ID']; }));
+    var products = (DATA.allProducts || []).filter(function(p){ return ids.has(p['Lead ID']); });
+    return { leads: leads, products: products, tag: (from || 'start') + '_' + (to || 'end'),
+             label: (from || 'เริ่มต้น') + ' – ' + (to || 'ล่าสุด') };
+  }
+  return { leads: DATA.allLeads || [], products: DATA.allProducts || [], tag: 'all', label: DATA.meta.dateRange };
+}
+function exportSegmentation(){
+  var note = document.getElementById('segNote');
+  if(!DATA){ if(note) note.textContent = 'ยังไม่มีข้อมูล — อัปโหลดไฟล์ก่อน'; return; }
+  var scope = segScopeRows();
+  var leads = scope.leads, products = scope.products;
+  if(!leads.length){ if(note) note.textContent = 'ไม่พบออเดอร์ในช่วงที่เลือก'; return; }
+
+  var itemsByLead = new Map();
+  products.forEach(function(p){
+    var k = p['Lead ID'];
+    if(!itemsByLead.has(k)) itemsByLead.set(k, []);
+    itemsByLead.get(k).push(p);
+  });
+
+  var noPhone = 0, maskedCount = 0;
+  var dropMasked = !!(document.getElementById('segDropMasked') || {}).checked;
+  var custOf = new Map();
+  leads.forEach(function(r){
+    var id = r['Lead ID'];
+    var ca = (DATA.contactAccountByLead && DATA.contactAccountByLead.get(id)) || null;
+    var contact = ca && ca.contact, account = ca && ca.account;
+    var phone = cleanPhone(contact && contact['Phone'], account);
+    if(!phone) noPhone++;
+    var rawName = (buildRecipientName(r, contact) || String(r['Lead Name'] || '').trim());
+    var masked = isMaskedText(rawName) || isMaskedText(contact && contact['First Name']);
+    if(masked) maskedCount++;
+    var pv = resolveProvince(account);
+    custOf.set(id, {
+      customer_id: phone || ('LEAD-' + id),
+      customer_key_type: phone ? 'phone' : 'lead_id',
+      customer_name: masked ? '' : rawName,
+      is_masked: masked,
+      data_quality: masked ? 'masked' : (phone ? 'ok' : 'no_phone'),
+      phone: phone,
+      province: pv.province || '',
+      province_source: pv.source,
+      zipcode: (account && account['Zipcode']) ? String(account['Zipcode']).trim() : '',
+      is_metro: pv.province ? (isMetro(pv.province) ? 1 : 0) : ''
+    });
+  });
+
+  var usedLeads = dropMasked ? leads.filter(function(r){ return !custOf.get(r['Lead ID']).is_masked; }) : leads.slice();
+  if(!usedLeads.length){ if(note) note.textContent = 'ไม่เหลือออเดอร์หลังตัดข้อมูลที่ถูกปิดบังออก'; return; }
+  var orderRows = usedLeads.sort(function(a, b){
+    return String(a.__date).localeCompare(String(b.__date)) || String(a['Lead ID']).localeCompare(String(b['Lead ID']));
+  }).map(function(r){
+    var id = r['Lead ID'], c = custOf.get(id), its = itemsByLead.get(id) || [];
+    var units = its.reduce(function(s, p){ return s + (Number(p['Quantity']) || 0); }, 0);
+    var disc  = its.reduce(function(s, p){ return s + (Number(p['Discount']) || 0); }, 0);
+    var skuSet = new Set(), prodSet = new Set();
+    its.forEach(function(p){
+      var sk = String(p['Product Code'] || '').trim(); if(sk) skuSet.add(sk);
+      if(p.__short) prodSet.add(p.__short);
+    });
+    var pre = Number(r['Lead Value']) || 0;
+    return {
+      order_id: id,
+      order_date: r.__date,
+      customer_id: c.customer_id,
+      customer_key_type: c.customer_key_type,
+      customer_name: c.customer_name,
+      phone: c.phone,
+      data_quality: c.data_quality,
+      province: c.province,
+      zipcode: c.zipcode,
+      is_metro: c.is_metro,
+      channel: channelLabel(r),
+      sales_rep: String(r['Current User Name'] || 'ไม่ระบุ').trim() || 'ไม่ระบุ',
+      payment_method: paymentMethod(r['Lead Intro']),
+      order_value_pre_vat: Math.round(pre * 100) / 100,
+      order_value_incl_vat: Math.round(withVat(pre) * 100) / 100,
+      discount_total: Math.round(disc * 100) / 100,
+      units: units,
+      n_line_items: its.length,
+      n_distinct_sku: skuSet.size,
+      skus: Array.from(skuSet).join(' | '),
+      products: Array.from(prodSet).join(' | ')
+    };
+  });
+
+  var itemRows = [];
+  orderRows.forEach(function(o){
+    (itemsByLead.get(o.order_id) || []).forEach(function(p){
+      var pre = Number(p['Value Before VAT']) || 0;
+      itemRows.push({
+        order_id: o.order_id,
+        order_date: o.order_date,
+        customer_id: o.customer_id,
+        sku: String(p['Product Code'] || '').trim(),
+        product_name: String(p['Product Name'] || '').trim(),
+        product_short: p.__short || '',
+        promo: p.__promo || '',
+        quantity: Number(p['Quantity']) || 0,
+        unit_price: Math.round((Number(p['Unit Price']) || 0) * 100) / 100,
+        discount: Math.round((Number(p['Discount']) || 0) * 100) / 100,
+        value_pre_vat: Math.round(pre * 100) / 100,
+        value_incl_vat: Math.round(withVat(pre) * 100) / 100,
+        channel: o.channel,
+        sales_rep: o.sales_rep
+      });
+    });
+  });
+
+  var dict = [
+    {sheet:'orders', column:'order_id',             meaning:'รหัสออเดอร์ (Lead ID) — ใช้ join กับ order_items'},
+    {sheet:'orders', column:'order_date',           meaning:'วันที่ซื้อ (YYYY-MM-DD) — ใช้คำนวณ Recency / Repurchase Cycle'},
+    {sheet:'orders', column:'customer_id',          meaning:'ตัวระบุลูกค้า = เบอร์โทร (รวมลูกค้าซ้ำแล้ว) ถ้าไม่มีเบอร์จะเป็น LEAD-<order_id>'},
+    {sheet:'orders', column:'customer_key_type',    meaning:'phone = รวมลูกค้าซ้ำได้จริง / lead_id = ไม่มีเบอร์ นับเป็นลูกค้ารายใหม่เสมอ'},
+    {sheet:'orders', column:'customer_name',        meaning:'ชื่อผู้รับ (จาก Contacts) หรือชื่อ Lead'},
+    {sheet:'orders', column:'phone',                meaning:'เบอร์โทรที่ normalize แล้ว: 66xxxxxxxxx -> 0xxxxxxxxx และตัดเลขรหัสไปรษณีย์ที่ติดมาออกแล้ว'},
+    {sheet:'orders', column:'data_quality',         meaning:'ok = มีเบอร์ใช้ได้ / no_phone = ไม่มีเบอร์ / masked = ข้อมูลถูกปิดบังด้วย * (ถูกตัดออกถ้าติ๊กตัวเลือกไว้)'},
+    {sheet:'orders', column:'province / zipcode',   meaning:'จังหวัด/รหัสไปรษณีย์จากที่อยู่ (บางออเดอร์ parse จาก free text)'},
+    {sheet:'orders', column:'is_metro',             meaning:'1 = กรุงเทพฯ+ปริมณฑล, 0 = ต่างจังหวัด, ว่าง = ไม่ทราบ'},
+    {sheet:'orders', column:'channel',              meaning:'ช่องทางที่ปิดการขาย (Facebook / LINE-CRM / Telesales ฯลฯ)'},
+    {sheet:'orders', column:'sales_rep',            meaning:'ผู้ดูแลออเดอร์'},
+    {sheet:'orders', column:'payment_method',       meaning:'COD / โอนเงิน / ไม่ระบุ'},
+    {sheet:'orders', column:'order_value_pre_vat',  meaning:'ยอดออเดอร์ก่อน VAT'},
+    {sheet:'orders', column:'order_value_incl_vat', meaning:'ยอดออเดอร์รวม VAT 7% — ใช้ตัวนี้คำนวณ LTV ให้ตรงกับแดชบอร์ด'},
+    {sheet:'orders', column:'units',                meaning:'จำนวนชิ้นรวมในออเดอร์'},
+    {sheet:'orders', column:'n_distinct_sku',       meaning:'จำนวน SKU ที่ต่างกันในออเดอร์ — ใช้ดู Basket / Cross-sell'},
+    {sheet:'orders', column:'skus / products',      meaning:'รายการ SKU และชื่อสินค้าย่อในออเดอร์ คั่นด้วย |'},
+    {sheet:'customers', column:'customer_id',            meaning:'1 แถว = 1 ลูกค้า (รวมออเดอร์ทุกใบของเบอร์เดียวกันแล้ว)'},
+    {sheet:'customers', column:'orders / units / ltv_incl_vat / aov_incl_vat', meaning:'Frequency และ Monetary — ltv_incl_vat คือยอดสะสมรวม VAT'},
+    {sheet:'customers', column:'days_since_last_order',  meaning:'Recency — นับจาก "วันที่ซื้อล่าสุดในชุดข้อมูล" ไม่ใช่วันนี้'},
+    {sheet:'customers', column:'repurchase_cycle_days',  meaning:'รอบซื้อซ้ำเฉลี่ย = (ซื้อล่าสุด - ซื้อครั้งแรก) / (จำนวนครั้ง - 1); ถ้าซื้อครั้งเดียวใช้ค่ากลางของคนที่ซื้อซ้ำ (cycle_source = estimated)'},
+    {sheet:'customers', column:'days_overdue',           meaning:'> 0 = เลยรอบซื้อซ้ำแล้ว ควรเตือน'},
+    {sheet:'customers', column:'qty_* / orders_* / buy_*', meaning:'จำนวนชิ้น / จำนวนครั้ง / เคยซื้อหรือไม่ ของ SKU หลัก (dob, olive, mag, gluta, gaba)'},
+    {sheet:'customers', column:'favorite_sku',           meaning:'SKU ที่ลูกค้าจ่ายเงินให้มากที่สุด'},
+    {sheet:'customers', column:'R / F / M / rfm',        meaning:'คะแนน 1-5 (5 = ดีที่สุด) แบ่งด้วย quintile; rfm = ตัวเลข 3 หลักรวมกัน'},
+    {sheet:'customers', column:'rfm_segment',            meaning:'Champion / Loyal / At risk / Lapsed / New / One-time / Regular'},
+    {sheet:'customers', column:'gluta_orders / gluta_units / gluta_revenue_incl_vat', meaning:'พฤติกรรมเฉพาะ Gluta Collagen (HM-GT-01)'},
+    {sheet:'customers', column:'gluta_due',              meaning:'1 = เลยรอบซื้อ Gluta ซ้ำแล้ว โดยวัดจากรอบจริง (ต้องเคยซื้อ Gluta >= 2 ครั้ง) — ใช้ยิงได้เลย'},
+    {sheet:'customers', column:'gluta_due_estimated',    meaning:'1 = น่าจะถึงรอบ แต่ประมาณจากค่ากลางของกลุ่ม (ซื้อครั้งเดียว) — ความมั่นใจต่ำกว่า ควรรอข้อมูลยาวขึ้นก่อน'},
+    {sheet:'customers', column:'F (Frequency)',          meaning:'ข้อมูลชุดนี้ยาวแค่ ~2 เดือน ลูกค้าส่วนใหญ่ซื้อครั้งเดียว ทำให้ F เป็นได้แค่ 1 หรือ 5 — จะละเอียดขึ้นเมื่อมีข้อมูลยาวกว่านี้'},
+    {sheet:'customers', column:'gluta_segment / gluta_action', meaning:'กลุ่มสำหรับแคมเปญ Gluta + สิ่งที่ควรทำกับกลุ่มนั้น'},
+    {sheet:'segment_summary', column:'-',                meaning:'จำนวนลูกค้า/ออเดอร์/ยอดขาย แยกตาม gluta_segment และ rfm_segment'},
+    {sheet:'order_items', column:'sku / product_name / product_short', meaning:'สินค้าในบรรทัดนั้น'},
+    {sheet:'order_items', column:'promo',           meaning:'ป้ายโปรโมชั่นที่ระบบจัดกลุ่มให้'},
+    {sheet:'order_items', column:'quantity',        meaning:'จำนวนชิ้นของบรรทัดนั้น'},
+    {sheet:'order_items', column:'value_pre_vat / value_incl_vat', meaning:'มูลค่าบรรทัดนั้น ก่อน/รวม VAT'},
+    {sheet:'-', column:'หมายเหตุ',                   meaning:'ไม่รวมออเดอร์ที่ถูกลบ/ยกเลิก และไม่รวมบรรทัดค่าจัดส่ง'}
+  ];
+
+  /* ---------- ชีต customers: Feature Table พร้อมทำ Segmentation ---------- */
+  // SKU หลักที่ทำเป็นคอลัมน์ประจำ (ตัวอื่นยังนับรวมใน n_distinct_sku / favorite_sku อยู่)
+  var SEG_SKUS = [
+    {code:'HM-DOB-01', key:'dob'},
+    {code:'HM-OL-01',  key:'olive'},
+    {code:'HM-MNS-01', key:'mag'},
+    {code:'HM-GT-01',  key:'gluta'},
+    {code:'HM-GB-01',  key:'gaba'}
+  ];
+  var GLUTA_SKU = 'HM-GT-01';
+  var DAY = 86400000;
+  var toDay = function(d){ return new Date(String(d) + 'T00:00:00').getTime(); };
+  // วันอ้างอิงของ Recency = วันที่ซื้อล่าสุดในชุดข้อมูล (ไม่ใช่วันนี้ เพราะข้อมูลอาจไม่อัปเดตถึงวันนี้)
+  var refDay = Math.max.apply(null, orderRows.map(function(o){ return toDay(o.order_date); }));
+
+  var itemsOfOrder = new Map();
+  itemRows.forEach(function(it){
+    if(!itemsOfOrder.has(it.order_id)) itemsOfOrder.set(it.order_id, []);
+    itemsOfOrder.get(it.order_id).push(it);
+  });
+
+  var cmap = new Map();
+  orderRows.forEach(function(o){
+    var c = cmap.get(o.customer_id);
+    if(!c){
+      c = { customer_id:o.customer_id, customer_key_type:o.customer_key_type, customer_name:o.customer_name,
+            phone:o.phone, province:o.province, zipcode:o.zipcode, is_metro:o.is_metro, data_quality:o.data_quality,
+            orders:0, units:0, ltv_pre_vat:0, ltv_incl_vat:0, discount_total:0,
+            dates:[], chan:{}, rep:{}, pay:{}, skuQty:{}, skuRev:{}, skuOrders:{}, firstSkus:'', glutaDates:[] };
+      cmap.set(o.customer_id, c);
+    }
+    if(!c.customer_name && o.customer_name) c.customer_name = o.customer_name;
+    if(!c.phone && o.phone) c.phone = o.phone;
+    if(!c.province && o.province) c.province = o.province;
+    c.orders += 1;
+    c.units += o.units;
+    c.ltv_pre_vat  += o.order_value_pre_vat;
+    c.ltv_incl_vat += o.order_value_incl_vat;
+    c.discount_total += o.discount_total;
+    c.dates.push(o.order_date);
+    c.chan[o.channel] = (c.chan[o.channel] || 0) + 1;
+    c.rep[o.sales_rep] = (c.rep[o.sales_rep] || 0) + 1;
+    c.pay[o.payment_method] = (c.pay[o.payment_method] || 0) + 1;
+    var seen = {};
+    (itemsOfOrder.get(o.order_id) || []).forEach(function(it){
+      var sk = it.sku || it.product_short || '?';
+      c.skuQty[sk] = (c.skuQty[sk] || 0) + it.quantity;
+      c.skuRev[sk] = Math.round(((c.skuRev[sk] || 0) + it.value_incl_vat) * 100) / 100;
+      if(!seen[sk]){ seen[sk] = 1; c.skuOrders[sk] = (c.skuOrders[sk] || 0) + 1; }
+    });
+    if(seen[GLUTA_SKU]) c.glutaDates.push(o.order_date);
+  });
+
+  var topKey = function(obj){
+    var best = '', n = -1;
+    Object.keys(obj).forEach(function(k){ if(obj[k] > n){ n = obj[k]; best = k; } });
+    return best;
+  };
+  var cycleOf = function(dates){
+    if(dates.length < 2) return null;
+    var sorted = dates.slice().sort();
+    return Math.round((toDay(sorted[sorted.length-1]) - toDay(sorted[0])) / DAY / (sorted.length - 1));
+  };
+
+  var custList = Array.from(cmap.values());
+  // รอบซื้อซ้ำเริ่มต้น (ใช้กับลูกค้าที่ยังซื้อครั้งเดียว) = median ของคนที่ซื้อซ้ำจริง
+  var realCycles = custList.map(function(c){ return cycleOf(c.dates); }).filter(function(x){ return x != null && x > 0; }).sort(function(a,b){ return a-b; });
+  var medianCycle = realCycles.length ? realCycles[Math.floor(realCycles.length/2)] : 0;
+  var glutaCycles = custList.map(function(c){ return cycleOf(c.glutaDates); }).filter(function(x){ return x != null && x > 0; }).sort(function(a,b){ return a-b; });
+  var glutaMedianCycle = glutaCycles.length ? glutaCycles[Math.floor(glutaCycles.length/2)] : medianCycle;
+
+  var custRows = custList.map(function(c){
+    var sorted = c.dates.slice().sort();
+    var first = sorted[0], last = sorted[sorted.length-1];
+    var daysSince = Math.round((refDay - toDay(last)) / DAY);
+    var realCycle = cycleOf(c.dates);
+    var cycle = realCycle != null && realCycle > 0 ? realCycle : medianCycle;
+    var gSorted = c.glutaDates.slice().sort();
+    var gLast = gSorted.length ? gSorted[gSorted.length-1] : '';
+    var gRealCycle = cycleOf(c.glutaDates);
+    var gCycle = gRealCycle != null && gRealCycle > 0 ? gRealCycle : glutaMedianCycle;
+    var row = {
+      customer_id: c.customer_id,
+      customer_key_type: c.customer_key_type,
+      customer_name: c.customer_name,
+      phone: c.phone,
+      province: c.province,
+      zipcode: c.zipcode,
+      is_metro: c.is_metro,
+      data_quality: c.data_quality,
+      main_channel: topKey(c.chan),
+      main_sales_rep: topKey(c.rep),
+      main_payment: topKey(c.pay),
+      first_order_date: first,
+      last_order_date: last,
+      tenure_days: Math.round((toDay(last) - toDay(first)) / DAY),
+      days_since_last_order: daysSince,
+      orders: c.orders,
+      units: c.units,
+      ltv_pre_vat: Math.round(c.ltv_pre_vat * 100) / 100,
+      ltv_incl_vat: Math.round(c.ltv_incl_vat * 100) / 100,
+      aov_incl_vat: Math.round(c.ltv_incl_vat / c.orders * 100) / 100,
+      discount_total: Math.round(c.discount_total * 100) / 100,
+      repurchase_cycle_days: cycle,
+      cycle_source: (realCycle != null && realCycle > 0) ? 'actual' : 'estimated',
+      days_overdue: cycle ? daysSince - cycle : '',
+      is_repeat: c.orders >= 2 ? 1 : 0
+    };
+    SEG_SKUS.forEach(function(x){
+      row['qty_' + x.key]    = c.skuQty[x.code] || 0;
+      row['orders_' + x.key] = c.skuOrders[x.code] || 0;
+      row['buy_' + x.key]    = c.skuQty[x.code] ? 1 : 0;
+    });
+    row.n_distinct_sku = Object.keys(c.skuQty).length;
+    row.favorite_sku   = topKey(c.skuRev);
+    row.all_skus       = Object.keys(c.skuQty).join(' | ');
+    row.gluta_orders   = c.glutaDates.length;
+    row.gluta_units    = c.skuQty[GLUTA_SKU] || 0;
+    row.gluta_revenue_incl_vat = c.skuRev[GLUTA_SKU] || 0;
+    row.gluta_last_date = gLast;
+    row.gluta_days_since = gLast ? Math.round((refDay - toDay(gLast)) / DAY) : '';
+    row.gluta_cycle_days = c.glutaDates.length ? gCycle : '';
+    row.gluta_cycle_source = c.glutaDates.length ? ((gRealCycle != null && gRealCycle > 0) ? 'actual' : 'estimated') : '';
+    // เตือนซื้อซ้ำ "ของจริง" = ต้องเคยซื้อ Gluta อย่างน้อย 2 ครั้งถึงจะรู้รอบจริง
+    row.gluta_due = (row.gluta_cycle_source === 'actual' && row.gluta_days_since >= gCycle) ? 1 : 0;
+    // เตือนแบบประมาณ (ซื้อครั้งเดียว ใช้ค่ากลางของกลุ่ม) — ความมั่นใจต่ำกว่า ใช้เป็น "น่าจะถึงรอบ"
+    row.gluta_due_estimated = (row.gluta_cycle_source === 'estimated' && row.gluta_days_since >= gCycle) ? 1 : 0;
+    return row;
+  });
+
+  // ---- RFM scoring (quintile 1-5, 5 = ดีที่สุด) ----
+  function scoreBy(rows, field, higherIsBetter, outField){
+    var vals = rows.map(function(r){ return Number(r[field]) || 0; }).slice().sort(function(a,b){ return a-b; });
+    function q(p){ return vals[Math.min(vals.length-1, Math.floor(vals.length * p))]; }
+    var cuts = [q(0.2), q(0.4), q(0.6), q(0.8)];
+    rows.forEach(function(r){
+      var v = Number(r[field]) || 0, sc = 1;
+      for(var i = 0; i < cuts.length; i++){ if(v > cuts[i]) sc = i + 2; }
+      r[outField] = higherIsBetter ? sc : (6 - sc);
+    });
+  }
+  scoreBy(custRows, 'days_since_last_order', false, 'R');
+  scoreBy(custRows, 'orders', true, 'F');
+  scoreBy(custRows, 'ltv_incl_vat', true, 'M');
+  custRows.forEach(function(r){
+    r.rfm = '' + r.R + r.F + r.M;
+    if(r.orders === 1)                      r.rfm_segment = r.days_since_last_order <= 30 ? 'New (ซื้อครั้งแรก)' : 'One-time (หายไป)';
+    else if(r.R >= 4 && r.F >= 4)           r.rfm_segment = 'Champion';
+    else if(r.R >= 3 && r.F >= 3)           r.rfm_segment = 'Loyal';
+    else if(r.R <= 2 && r.F >= 3)           r.rfm_segment = 'At risk (เคยซื้อบ่อย แต่หายไป)';
+    else if(r.R <= 2)                       r.rfm_segment = 'Lapsed';
+    else                                    r.rfm_segment = 'Regular';
+
+    // ---- Gluta segment (rule-based) ----
+    if(r.gluta_orders >= 2)                                  r.gluta_segment = '1. Gluta VIP (ซื้อซ้ำ)';
+    else if(r.gluta_orders === 1 && r.buy_dob && r.buy_mag)  r.gluta_segment = '2. Gluta + Combo (DOB+Mag)';
+    else if(r.gluta_orders === 1 && r.n_distinct_sku === 1)  r.gluta_segment = '3. Gluta Solo (cross-sell Magnesium)';
+    else if(r.gluta_orders === 1)                            r.gluta_segment = '4. Gluta Mixed';
+    else if(r.buy_olive && !r.buy_dob && !r.buy_mag)         r.gluta_segment = '6. ไม่ใช่กลุ่มเป้าหมาย (Olive Oil)';
+    else if(r.buy_dob || r.buy_mag)                          r.gluta_segment = '5. Cross-sell prospect (ยังไม่เคยซื้อ Gluta)';
+    else                                                     r.gluta_segment = '7. อื่น ๆ';
+    r.gluta_action = r.gluta_segment.indexOf('1.') === 0 ? 'Early access / referral / bundle ใหญ่'
+      : r.gluta_segment.indexOf('2.') === 0 ? 'เสนอ subscription / แพ็กประหยัด'
+      : r.gluta_segment.indexOf('3.') === 0 ? 'เสนอ Magnesium (lift 3.5x)'
+      : r.gluta_segment.indexOf('4.') === 0 ? 'เติมสินค้าที่ยังขาดในชุด'
+      : r.gluta_segment.indexOf('5.') === 0 ? 'ทดลอง Gluta ราคาแนะนำ'
+      : r.gluta_segment.indexOf('6.') === 0 ? 'ไม่ยิง Gluta (lift 0.12x) — เสนอ Olive Oil ซ้ำแทน'
+      : '-';
+    if(r.gluta_due) r.gluta_action = 'ถึงรอบซื้อซ้ำแล้ว (รอบจริง) — เตือนก่อน: ' + r.gluta_action;
+  });
+  custRows.sort(function(a, b){ return b.ltv_incl_vat - a.ltv_incl_vat; });
+
+  // ---- ชีตสรุปจำนวนต่อ segment ----
+  function summarize(field){
+    var agg = {};
+    custRows.forEach(function(r){
+      var k = r[field];
+      if(!agg[k]) agg[k] = { segment_type:field, segment:k, customers:0, orders:0, revenue_incl_vat:0 };
+      agg[k].customers += 1; agg[k].orders += r.orders; agg[k].revenue_incl_vat += r.ltv_incl_vat;
+    });
+    return Object.values(agg).map(function(x){
+      x.revenue_incl_vat = Math.round(x.revenue_incl_vat);
+      x.avg_ltv = Math.round(x.revenue_incl_vat / x.customers);
+      x.pct_of_customers = Math.round(x.customers / custRows.length * 1000) / 10;
+      return x;
+    }).sort(function(a, b){ return String(a.segment).localeCompare(String(b.segment), 'th'); });
+  }
+  var summaryRows = summarize('gluta_segment').concat(summarize('rfm_segment'));
+
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(custRows), 'customers');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'segment_summary');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(orderRows), 'orders');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'order_items');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dict), 'dictionary');
+  var tag = String(scope.tag).replace(/[^0-9A-Za-z_\-]+/g, '-').replace(/^-+|-+$/g, '') || 'export';
+  XLSX.writeFile(wb, 'hylme_segmentation_' + tag + '.xlsx');
+
+  var uniqCust = custRows.length;
+  if(note){
+    note.innerHTML = 'ดาวน์โหลดแล้ว: <b>' + fmtNum(orderRows.length) + '</b> ออเดอร์ • <b>' + fmtNum(itemRows.length) +
+      '</b> รายการสินค้า • <b>' + fmtNum(uniqCust) + '</b> ลูกค้า (customers)' +
+      (scope.label ? ' • ช่วง ' + scope.label : '') +
+      (maskedCount ? '<br>' + (dropMasked ? 'ตัดออก ' : 'พบ ') + '<b>' + fmtNum(maskedCount) + '</b> ออเดอร์ที่ข้อมูลลูกค้าถูกปิดบัง (*)' + (dropMasked ? '' : ' — ดูคอลัมน์ data_quality = masked') : '') +
+      (noPhone ? '<br><span style="color:var(--warning);">' + fmtNum(noPhone) + ' ออเดอร์ไม่มีเบอร์โทรที่ใช้ได้ — ถูกนับเป็นลูกค้าแยกราย (customer_key_type = lead_id)</span>' : '');
+  }
+}
+(function(){
+  var sel = document.getElementById('segScope');
+  var f = document.getElementById('segFrom'), t = document.getElementById('segTo'), d = document.getElementById('segDash');
+  if(sel){
+    sel.addEventListener('change', function(){
+      var show = sel.value === 'range' ? '' : 'none';
+      f.style.display = show; t.style.display = show; d.style.display = show === '' ? 'inline' : 'none';
+      if(sel.value === 'range' && DATA && DATA.allLeads && DATA.allLeads.length && !f.value){
+        var ds = DATA.allLeads.map(function(r){ return r.__date; }).filter(Boolean).sort();
+        f.value = ds[0]; t.value = ds[ds.length - 1];
+      }
+    });
+  }
+  var btn = document.getElementById('btnExportSeg');
+  if(btn) btn.addEventListener('click', exportSegmentation);
+})();
+
 document.getElementById('btnBake').addEventListener('click', bakeAndDownload);
 document.getElementById('btnPublish').addEventListener('click', publishToGitHub);
 document.getElementById('btnGhSetup').addEventListener('click', ghSetup);
