@@ -3410,7 +3410,6 @@ function exportSegmentation(){
       is_masked: masked,
       data_quality: masked ? 'masked' : (phone ? 'ok' : 'no_phone'),
       phone: phone,
-      address: masked ? '' : buildAddress(account),
       province: pv.province || '',
       province_source: pv.source,
       zipcode: (account && account['Zipcode']) ? String(account['Zipcode']).trim() : '',
@@ -3440,7 +3439,6 @@ function exportSegmentation(){
       customer_name: c.customer_name,
       phone: c.phone,
       data_quality: c.data_quality,
-      address: c.address,
       province: c.province,
       zipcode: c.zipcode,
       is_metro: c.is_metro,
@@ -3489,7 +3487,6 @@ function exportSegmentation(){
     {sheet:'orders', column:'customer_name',        meaning:'ชื่อผู้รับ (จาก Contacts) หรือชื่อ Lead'},
     {sheet:'orders', column:'phone',                meaning:'เบอร์โทรที่ normalize แล้ว: 66xxxxxxxxx -> 0xxxxxxxxx และตัดเลขรหัสไปรษณีย์ที่ติดมาออกแล้ว'},
     {sheet:'orders', column:'data_quality',         meaning:'ok = มีเบอร์ใช้ได้ / no_phone = ไม่มีเบอร์ / masked = ข้อมูลถูกปิดบังด้วย * (ถูกตัดออกถ้าติ๊กตัวเลือกไว้)'},
-    {sheet:'orders', column:'address',              meaning:'ที่อยู่จัดส่งแบบเต็ม (รวมตำบล/อำเภอ/จังหวัด/รหัสไปรษณีย์ที่มี) — เว้นว่างถ้าข้อมูลถูกปิดบัง (masked)'},
     {sheet:'orders', column:'province / zipcode',   meaning:'จังหวัด/รหัสไปรษณีย์จากที่อยู่ (บางออเดอร์ parse จาก free text)'},
     {sheet:'orders', column:'is_metro',             meaning:'1 = กรุงเทพฯ+ปริมณฑล, 0 = ต่างจังหวัด, ว่าง = ไม่ทราบ'},
     {sheet:'orders', column:'channel',              meaning:'ช่องทางที่ปิดการขาย (Facebook / LINE-CRM / Telesales ฯลฯ)'},
@@ -3502,7 +3499,6 @@ function exportSegmentation(){
     {sheet:'orders', column:'skus / products',      meaning:'รายการ SKU และชื่อสินค้าย่อในออเดอร์ คั่นด้วย |'},
     {sheet:'customers', column:'customer_id',            meaning:'1 แถว = 1 ลูกค้า (รวมออเดอร์ทุกใบของเบอร์เดียวกันแล้ว)'},
     {sheet:'customers', column:'orders / units / ltv_incl_vat / aov_incl_vat', meaning:'Frequency และ Monetary — ltv_incl_vat คือยอดสะสมรวม VAT'},
-    {sheet:'customers', column:'address',                meaning:'ที่อยู่จัดส่งล่าสุดที่ไม่ว่างของลูกค้ารายนั้น'},
     {sheet:'customers', column:'days_since_last_order',  meaning:'Recency — นับจาก "วันที่ซื้อล่าสุดในชุดข้อมูล" ไม่ใช่วันนี้'},
     {sheet:'customers', column:'repurchase_cycle_days',  meaning:'รอบซื้อซ้ำเฉลี่ย = (ซื้อล่าสุด - ซื้อครั้งแรก) / (จำนวนครั้ง - 1); ถ้าซื้อครั้งเดียวใช้ค่ากลางของคนที่ซื้อซ้ำ (cycle_source = estimated)'},
     {sheet:'customers', column:'days_overdue',           meaning:'> 0 = เลยรอบซื้อซ้ำแล้ว ควรเตือน'},
@@ -3549,14 +3545,13 @@ function exportSegmentation(){
     var c = cmap.get(o.customer_id);
     if(!c){
       c = { customer_id:o.customer_id, customer_key_type:o.customer_key_type, customer_name:o.customer_name,
-            phone:o.phone, address:o.address, province:o.province, zipcode:o.zipcode, is_metro:o.is_metro, data_quality:o.data_quality,
+            phone:o.phone, province:o.province, zipcode:o.zipcode, is_metro:o.is_metro, data_quality:o.data_quality,
             orders:0, units:0, ltv_pre_vat:0, ltv_incl_vat:0, discount_total:0,
             dates:[], chan:{}, rep:{}, pay:{}, skuQty:{}, skuRev:{}, skuOrders:{}, firstSkus:'', glutaDates:[] };
       cmap.set(o.customer_id, c);
     }
     if(!c.customer_name && o.customer_name) c.customer_name = o.customer_name;
     if(!c.phone && o.phone) c.phone = o.phone;
-    if(!c.address && o.address) c.address = o.address;
     if(!c.province && o.province) c.province = o.province;
     c.orders += 1;
     c.units += o.units;
@@ -3610,7 +3605,6 @@ function exportSegmentation(){
       customer_key_type: c.customer_key_type,
       customer_name: c.customer_name,
       phone: c.phone,
-      address: c.address,
       province: c.province,
       zipcode: c.zipcode,
       is_metro: c.is_metro,
