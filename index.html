@@ -1895,6 +1895,11 @@ const CH = {
   fbKaimun     : '3038', // Facebook Hylme ครบจบเรื่องไขมัน
   fbHylme      : '3037', // Facebook Hylme
 };
+// ช่องทางมาร์เก็ตเพลส — ไม่ได้อยู่ในรหัสช่องทางขายของ MC (ไม่เกี่ยวกับการส่งของชุดนี้)
+// -> ปล่อยช่อง "Shop Sales channel" ว่างไว้ และไม่นับเป็นข้อมูลไม่ครบ
+const MARKETPLACE_RE = /shopee|tiktok|tik tok|lazada|ช้อปปี้|ลาซาด้า/i;
+// ผู้ขายที่ใช้กับทุกออเดอร์ที่ช่องทางขาย = Telesales (3044)
+const TELESALES_MC_PERSON = 'Chitanuch Chitranondh';
 // (4) สินค้าพรีออเดอร์ (Olive Oil, GABA) -> สถานะ "OnHold (จอง)" + ใส่หมายเหตุ Pre-order
 //     ที่เหลือ (Daily Oils Blend / Gluta / Magnesium ฯลฯ) -> "Fulfill (อนุมัติ)"
 const PREORDER_SKUS = new Set(['HM-OL-01','HM-GB-01']);      // HM-OL-01 = Olive Oil, HM-GB-01 = GABA
@@ -1969,7 +1974,7 @@ function isSkuApproved(p){
 // ช่องทางขาย: อันดับ 1 ดูจาก Lead Intro ก่อน (เพจ FB / IG / LINE),
 //             อันดับ 2 ถ้า Lead Intro ระบุไม่ได้ ค่อยดูจากผู้ดูแล (คน Telesales -> Telesales)
 function mapSalesChannel(lead){
-  // --- อันดับ 1: Lead Intro ---
+  // --- อันดับ 1: Lead Intro (= "แหล่งที่มาของคำสั่งซื้อ" ที่ import เข้ามา) ---
   const intro = String(lead['Lead Intro'] || '');
   const ch = parseChannel(intro);   // เช่น "Facebook Hylme ครบจบเรื่องไขมัน" / "Instagram hylme_official"
   if(/instagram/i.test(ch))  return { value: CH.ig };
@@ -1977,9 +1982,17 @@ function mapSalesChannel(lead){
   if(ch.includes('ผิว'))      return { value: CH.fbPiw };
   if(ch.includes('นอน'))      return { value: CH.fbNon };
   if(/facebook/i.test(ch))   return { value: CH.fbHylme };
+  // Marketplace (Shopee / Tiktok / Lazada): ไม่ได้ส่งของผ่าน MC -> เว้นช่องทางขายว่างไว้
+  // และไม่ต้องขึ้นหมายเหตุเตือน (ไม่ถือเป็นข้อมูลไม่ครบ)
+  if(MARKETPLACE_RE.test(intro) || MARKETPLACE_RE.test(ch)) return { value:'' };
+  // Telesales: ดูจากข้อความใน Lead Intro ก่อน (เช่น "Telesales, COD")
+  // ไม่ต้องรอเช็คชื่อผู้ดูแล เพราะทีมโทรมีคนเข้า-ออก/ใช้ชื่อย่อ (TRADER, กอล์ฟ ฯลฯ)
+  if(/telesales|เทเลเซล|โทรขาย/i.test(intro) || /telesales/i.test(ch)) return { value: CH.telesales };
   // LINE: ถ้า Lead Intro มีคำว่า "Privilege" -> LINE Privilege, ถ้าไม่มี -> LINE Official
   if(/line|ไลน์/i.test(intro))
     return { value: /privilege/i.test(intro) ? CH.linePrivilege : CH.lineOfficial };
+  // ทีม CRM (ยิงผ่าน LINE Privilege) — Lead Intro เขียนสั้น ๆ ว่า "CRM"
+  if(/(^|[^A-Za-z])CRM([^A-Za-z]|$)/i.test(intro)) return { value: CH.linePrivilege };
   // --- อันดับ 2: ผู้ดูแล (fallback) ---
   const person = String(lead['Current User Name'] || '').replace(/\s+/g,' ').trim();
   if(TELESALES_PEOPLE.has(person)) return { value: CH.telesales };
@@ -2052,8 +2065,12 @@ function buildMcRows(leads, products, contactAccountByLead){
       extraNotes.push('Pre-order: ' + names.join(', '));
     }
     // ---- ผู้ขาย + ช่องทางขาย (order-level) ----
-    const mappedPerson = mapSalesPerson(lead['Current User Name']);
     const chan = mapSalesChannel(lead);
+    // ออเดอร์ Telesales: ทีมโทรใช้บัญชีผู้ขายกลางเสมอ (ชื่อผู้ดูแลใน CRM เป็นชื่อย่อ/บัญชีชั่วคราว
+    // เช่น TRADER, กอล์ฟ ซึ่งไม่มี ID ผู้ขายใน MC) -> บังคับเป็น Chitanuch Chitranondh
+    const mappedPerson = (chan.value === CH.telesales)
+      ? TELESALES_MC_PERSON
+      : mapSalesPerson(lead['Current User Name']);
     if(chan.note) notes.push(chan.note);   // ช่องทางขายที่ระบุไม่ได้ = ต้องตรวจสอบ (นับเป็น flagged)
     const allNotes = notes.concat(extraNotes);
 
