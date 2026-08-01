@@ -1133,8 +1133,12 @@ function convertMyCloudData(wb, fileTag){
    กันยอดซ้ำ 2 ชั้น:
      ชั้นที่ 1 — เลขออเดอร์ของมาร์เก็ตเพลส (Lead ID = "MKP-<order no>")
                  -> กด import ไฟล์เดิม/ไฟล์ที่วันทับกันกี่รอบก็ไม่บวกซ้ำ
-     ชั้นที่ 2 — "วันที่ + ยอดรวม VAT ตรงกัน" เทียบกับออเดอร์ marketplace ที่มีอยู่แล้วในระบบ
-                 -> จับเคสที่ทีมคีย์มือลง Google Sheet เก่าไปแล้ว (ไฟล์เก่าไม่มีเลขออเดอร์ให้เทียบ)
+     ชั้นที่ 2 — "ช่องทาง + วันที่ + ยอดรวม VAT ตรงกัน" เทียบเฉพาะกับแถวที่ "ไม่มีเลขออเดอร์"
+                 (คือแถวที่ทีมคีย์มือลง Google Sheet เก่า) เท่านั้น
+                 -> ออเดอร์ที่ import จากไฟล์ MyCloud แล้ว (MKP-...) ไม่ถูกเอามาเทียบซ้ำในชั้นนี้
+                    เพราะชั้นที่ 1 คุมด้วยเลขออเดอร์อยู่แล้ว และถ้าเอามาเทียบจะเกิด false positive
+                    (เคสจริง: Lazada 690.00 ของ 31 ก.ค. ไปกิน slot ของ Tiktok 690.00 วันเดียวกัน
+                     ทำให้ออเดอร์ Tiktok จริง 1 รายการหายไปจากยอด)
                  หมายเหตุ: ยอมให้ต่างกันได้ไม่เกิน 0.02 บาท เพราะไฟล์เก่าเก็บยอด "ก่อน VAT" ที่ปัดทศนิยม
                  ไว้แล้ว พอคูณ 1.07 กลับมาจะคลาดจากยอดจริงราว 1 สตางค์ (ไม่ใช่การผ่อนเกณฑ์ให้หลวม)
 
@@ -1143,7 +1147,17 @@ function convertMyCloudData(wb, fileTag){
                 ส่วนการ์ดที่แยกตามสินค้าจะไม่มีออเดอร์ marketplace รวมอยู่ */
 const MKP_CHANNEL_RE = /shopee|tiktok|tik\s*tok|lazada|ช้อปปี้|ลาซาด้า/i;
 const MKP_AMOUNT_EPSILON = 0.02;   // เผื่อเศษสตางค์จากการปัดทศนิยมของไฟล์เก่าเท่านั้น
-const mkpAmtKey = (dateStr, gross) => dateStr + '|' + (Math.round(Number(gross) * 100) / 100).toFixed(2);
+/* ชั้นที่ 2 ต้องเทียบ "แยกตามช่องทาง" ด้วย ไม่งั้นออเดอร์ Shopee/Lazada ที่บังเอิญยอดเท่ากัน
+   ในวันเดียวกันจะไปกิน slot ของออเดอร์ Tiktok ทำให้ออเดอร์จริงหายไปจากยอด
+   (เคสจริง: Lazada 690.00 ของ 31 ก.ค. ทำให้ Tiktok 690.00 ของวันเดียวกันถูกมองว่าซ้ำ) */
+function mkpChannelKey(text){
+  const s = String(text || '');
+  if(/shopee|ช้อปปี้/i.test(s))      return 'shopee';
+  if(/tiktok|tik\s*tok/i.test(s))    return 'tiktok';
+  if(/lazada|ลาซาด้า/i.test(s))      return 'lazada';
+  return 'mkp';
+}
+const mkpAmtKey = (chan, dateStr, gross) => chan + '|' + dateStr + '|' + (Math.round(Number(gross) * 100) / 100).toFixed(2);
 
 // ยอดรวม VAT ของ lead หนึ่งแถว (ไฟล์อื่นเก็บ Lead Value เป็นยอด "ก่อน VAT")
 function mkpGrossOfLead(lead){
@@ -1159,20 +1173,25 @@ function mkpExistingIndex(){
     (f.leadsRows || []).forEach(r => {
       const id = String(r['Lead ID'] || '');
       if(id) ids.add(id);
-      if(!MKP_CHANNEL_RE.test(String(r['Lead Intro'] || ''))) return;
+      // ออเดอร์ที่ import มาจากไฟล์ MyCloud แล้ว (MKP-<เลขออเดอร์>) มีเลขออเดอร์ให้เทียบตรง ๆ อยู่แล้ว
+      // -> ชั้นที่ 1 คุมครบ ไม่ต้องเอามาใส่ลายนิ้วมือ "วันที่+ยอด" ซึ่งเป็นตัวเดาและชนกันง่าย
+      // ชั้นที่ 2 มีไว้จับเฉพาะแถวที่ทีมคีย์มือลง Google Sheet เก่า (ไม่มีเลขออเดอร์) เท่านั้น
+      if(/^MKP-/i.test(id)) return;
+      const intro = String(r['Lead Intro'] || '');
+      if(!MKP_CHANNEL_RE.test(intro)) return;
       const d = toDateStr(r['Lead Purchase Date']) || toDateStr(r['Create Datetime']);
       if(!d) return;
-      const k = mkpAmtKey(d, mkpGrossOfLead(r));
+      const k = mkpAmtKey(mkpChannelKey(intro), d, mkpGrossOfLead(r));
       amounts.set(k, (amounts.get(k) || 0) + 1);
     });
   });
   return { ids, amounts };
 }
 // หา key ที่ตรงกัน โดยเผื่อเศษสตางค์ ±0.02 (ดูเหตุผลในคอมเมนต์หัวบล็อก)
-function mkpTakeAmountMatch(amounts, dateStr, gross){
+function mkpTakeAmountMatch(amounts, chan, dateStr, gross){
   for(let cents = 0; cents <= Math.round(MKP_AMOUNT_EPSILON * 100); cents++){
     for(const sign of (cents === 0 ? [1] : [1, -1])){
-      const k = mkpAmtKey(dateStr, gross + sign * cents / 100);
+      const k = mkpAmtKey(chan, dateStr, gross + sign * cents / 100);
       if((amounts.get(k) || 0) > 0){ amounts.set(k, amounts.get(k) - 1); return true; }
     }
   }
@@ -1216,7 +1235,7 @@ function convertMarketplaceData(wb, fileTag){
     const leadId = 'MKP-' + key;
     seenInFile.add(key);
     if(idx.ids.has(leadId)){ stats.dupById++; return; }                       // ชั้นที่ 1
-    if(mkpTakeAmountMatch(idx.amounts, dateOnly, gross)){ stats.dupByAmount++; return; }  // ชั้นที่ 2
+    if(mkpTakeAmountMatch(idx.amounts, mkpChannelKey(rawChan), dateOnly, gross)){ stats.dupByAmount++; return; }  // ชั้นที่ 2
 
     idx.ids.add(leadId);
     const chanName = mcChannelName(rawChan) || 'ไม่ระบุช่องทาง';
