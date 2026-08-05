@@ -2419,13 +2419,16 @@ const psConv = m => (m && m.newCust) ? m.orders / m.newCust : null;
 const PAGE_DEFS = [
   { key:'fb_hylme',  page:'FB Hylme',            platform:'Facebook',  color:'#1877F2' },
   { key:'fb_kaimun', page:'FB ครบจบเรื่องไขมัน',  platform:'Facebook',  color:'#1877F2' },
-  { key:'fb_piw',    page:'FB ครบจบเรื่องผิว',    platform:'Facebook',  color:'#1877F2' },
   { key:'fb_non',    page:'FB ครบจบเรื่องนอน',    platform:'Facebook',  color:'#1877F2' },
+  { key:'fb_piw',    page:'FB ครบจบเรื่องผิว',    platform:'Facebook',  color:'#1877F2' },
   { key:'line_priv', page:'LINE Privilege',       platform:'Line',      color:'#06C755' },
   { key:'line_off',  page:'LINE Official',        platform:'Line',      color:'#06C755' },
   { key:'ig',        page:'Instagram',            platform:'Instagram', color:'#E1306C' },
 ];
 const PAGE_DEF_BY_KEY = Object.fromEntries(PAGE_DEFS.map(d => [d.key, d]));
+// ลำดับแสดงผลมาตรฐานของเพจ (ใช้เรียงตารางแทนการเรียงตามจำนวน)
+const PAGE_ORDER = Object.fromEntries(PAGE_DEFS.map((d, i) => [d.key, i]));
+const pageOrderIdx = k => (PAGE_ORDER[k] == null ? 999 : PAGE_ORDER[k]);
 // ทีมดูแลแชท: Admin = Facebook + Instagram ทั้งหมด, CRM = LINE ทั้งหมด
 const TEAM_DEFS = [
   { name:'Admin (Facebook + Instagram)', short:'Admin', color:'#1877F2', keys:['fb_hylme','fb_kaimun','fb_piw','fb_non','ig'] },
@@ -4508,7 +4511,7 @@ function renderFooter(){
     <div>ไฟล์ที่ใช้: ${DATA.meta.fileNames.join(', ')} • ช่วงข้อมูล: ${DATA.meta.dateRange} • อัปเดตล่าสุด: ${DATA.meta.generatedAt}</div>
     <div style="margin-top:4px;">ไม่รวมออเดอร์ที่ถูกลบ (Deleted) จำนวน ${DATA.meta.excludedCount} รายการ • นับรวมออเดอร์แจกฟรี/มูลค่า 0 บาท (เช่น สิทธิพิเศษวันเกิด แคมเปญแจกฟรี) เป็นออเดอร์ด้วย • ยอดขายคำนวณจาก Lead Value (รวมค่าจัดส่ง) แล้วบวก VAT 7% เพิ่มเข้าไป • "หน่วยที่ขาย" นับเฉพาะรายการสินค้า ไม่รวมค่าจัดส่ง • <b>รอบวันนับแบบเที่ยงคืนถึงเที่ยงคืน</b> ตามปฏิทิน (ออเดอร์ที่ปิดเลยเที่ยงคืนไปเล็กน้อยจะนับเป็นยอดของวันถัดไปตามเวลาที่บันทึกจริง) • สัปดาห์เริ่มวันอาทิตย์ และ<b>ตัดตามรอบเดือน</b> (สัปดาห์ที่คร่อม 2 เดือนจะถูกแยกเป็น 2 ช่วง เช่น 28–30 มิ.ย. และ 1–4 ก.ค.) • เดือนนับตามปฏิทิน (วันที่ 1 ถึงวันสุดท้ายของเดือน) • ตัวเลขเงินทุกจุดในหน้านี้เป็นยอดหลังบวก VAT 7% แล้ว</div>
     <div style="margin-top:4px;">Export Contact Template: 1 แถว = 1 ลูกค้า (รวมออเดอร์ที่เบอร์โทรเดียวกัน) • order_count / succeed_order_count / purchased_amount คำนวณจากออเดอร์ในช่วงที่เลือกเท่านั้น • ลูกค้าที่ไม่มีเบอร์โทรใช้ได้จะยัง export ให้ พร้อมหมายเหตุในคอลัมน์ note • คอลัมน์ owner ใส่ Thanyanat Noipuk ทุกแถว ส่วน created_by ใช้ชื่อผู้ดูแลจริงเป็นภาษาอังกฤษ • source ตัดคำว่า Facebook นำหน้าออก</div>
-    <div style="margin-top:4px;">Conversion Rate = ยอดออเดอร์ ÷ ลูกค้าใหม่ (จากไฟล์ "สถิติหน้า" ของ Pancake) — ไม่ใช้คอลัมน์ % ของ Pancake เพราะเป็น % รายวันที่บวกกันไม่ได้</div>
+    <div style="margin-top:4px;">Conversion Rate = ปิดการขาย (แอดมิน จากไฟล์ leads) ÷ ลูกค้าใหม่ (จากไฟล์ "สถิติหน้า" ของ Pancake) — ไม่ใช้คอลัมน์ % ของ Pancake เพราะเป็น % รายวันที่บวกกันไม่ได้ • เรียงตามลำดับเพจ: Hylme → ครบจบเรื่องไขมัน → ครบจบเรื่องนอน → ครบจบเรื่องผิว</div>
     <div style="margin-top:4px;">Export MC Template: "Price" คำนวณจากราคาหลังหักส่วนลด + VAT ((มูลค่าก่อน VAT ÷ จำนวนชิ้น) × 1.07) • ออเดอร์ที่ไม่มีคำว่า "COD"/"โอน" ใน Lead Intro จะไม่ export ให้ (ต้องตรวจสอบเองก่อน) • เขต กทม./ปริมณฑล ที่ใช้ตัดสิน DHL vs EMS คือ กรุงเทพฯ, นนทบุรี, ปทุมธานี, สมุทรปราการ, สมุทรสาคร, นครปฐม</div>
   `;
 }
@@ -4565,8 +4568,10 @@ function renderPageConversion(){
   const pageRows = Object.keys(ps.perPage).filter(inTeam).map(k => {
     const d = PAGE_DEF_BY_KEY[k] || { page:k, platform:'', color:'var(--baseline)' };
     const m = ps.perPage[k];
-    return { key:k, page:d.page, platform:d.platform, color:d.color, m, conv:psConv(m), closes:closesByPage[k] };
-  }).sort((a, b) => (b.m.newCust - a.m.newCust));
+    const closes = closesByPage[k];
+    return { key:k, page:d.page, platform:d.platform, color:d.color, m, closes,
+             conv: (m.newCust && closes != null) ? closes / m.newCust : null };
+  }).sort((a, b) => pageOrderIdx(a.key) - pageOrderIdx(b.key));
 
   // ยอดรวม: ถ้ากรองทีม ให้รวมเฉพาะเพจของทีมนั้น (ก้อน "รวมหลายเพจ" นับให้เมื่อเพจในก้อนอยู่ในทีม)
   const comboInTeam = ps.combo && ps.combo.keys.some(inTeam);
@@ -4581,7 +4586,9 @@ function renderPageConversion(){
     noPageTeam('ยังไม่ได้อัปโหลดไฟล์สถิติหน้าของช่องทาง ' + ((TEAM3_BY_KEY[state.team] || {}).sub || TEAM_LABEL(state.team)) + ' — ' + howTo);
     return;
   }
-  const tRate = psConv(total);
+  // ปิดการขายเฉพาะเพจของทีมนี้ (ไม่รวมออเดอร์ที่ระบุเพจไม่ได้) -> ใช้เป็นตัวตั้งของ Conversion
+  const totalCloses = pageRows.reduce((sum, r) => sum + (r.closes || 0), 0);
+  const tRate = total.newCust ? totalCloses / total.newCust : null;
   const tHit = tRate != null && tRate >= tConv;
   const phoneRate = total.newCust ? total.phoneNew / total.newCust : null;
 
@@ -4598,7 +4605,7 @@ function renderPageConversion(){
       <td>${fmtNum(r.m.phoneNew)}</td>
       <td>${fmtNum(r.m.orders)}</td>
       <td>${bar(r.conv, r.color)}</td>
-      <td style="color:var(--text-muted)">${r.closes == null ? '—' : fmtNum(r.closes)}</td>
+      <td>${r.closes == null ? '—' : fmtNum(r.closes)}</td>
     </tr>`).join('')
     + (comboInTeam ? `<tr>
       <td><span class="rep-name-pill"><span class="rep-dot" style="background:var(--baseline)"></span>รวมหลายเพจ
@@ -4608,7 +4615,7 @@ function renderPageConversion(){
 
   // ---- ตารางรายวัน ----
   const dailyHtml = !psShowDaily ? '' : `<div style="overflow-x:auto;margin-top:6px;">
-    <table class="conv-table"><thead><tr><th>วันที่</th><th>ลูกค้าใหม่</th><th>แชทใหม่</th><th>เบอร์โทรใหม่</th><th>ยอดออเดอร์</th><th>Conversion</th></tr></thead>
+    <table class="conv-table"><thead><tr><th>วันที่</th><th>ลูกค้าใหม่</th><th>แชทใหม่</th><th>เบอร์โทรใหม่</th><th>ยอดออเดอร์</th><th>Conversion (ยอดออเดอร์ Pancake)</th></tr></thead>
     <tbody>${ps.dates.map(d => {
       const m = ps.daily[d], c = psConv(m);
       const dd = new Date(d + 'T00:00:00');
@@ -4651,7 +4658,7 @@ function renderPageConversion(){
   wrap(`
     <div class="card-head">
       <div><h3>Conversion Rate — ลูกค้าใหม่ → ปิดการขาย${teamPageKeys ? ` <span class="pf-pill" style="background:${(TEAM3_BY_KEY[state.team]||{}).color || 'var(--baseline)'}">${TEAM_LABEL(state.team)}</span>` : ''}</h3>
-      <div class="card-sub">ที่มา: ไฟล์ <b>สถิติหน้า</b> ของ Pancake • สูตร: <b>ยอดออเดอร์ ÷ ลูกค้าใหม่</b> • เป้า ${(tConv*100).toFixed(0)}%</div></div>
+      <div class="card-sub">ลูกค้าใหม่จากไฟล์ <b>สถิติหน้า</b> ของ Pancake • สูตร: <b>ปิดการขาย (แอดมิน) ÷ ลูกค้าใหม่</b> • เป้า ${(tConv*100).toFixed(0)}%</div></div>
       <button class="table-toggle" onclick="psToggleDaily()">${psShowDaily ? 'ซ่อนรายวัน' : 'ดูรายวัน'}</button>
     </div>
     <div class="conv-hero-row">
@@ -4660,16 +4667,16 @@ function renderPageConversion(){
         <div class="sub">เป้า ${(tConv*100).toFixed(0)}%${tRate != null ? (tHit ? ' • ถึงเป้า' : ' • ต่ำกว่าเป้า ' + ((tConv - tRate) * 100).toFixed(1) + ' จุด') : ''}</div></div>
       <div class="conv-hero light"><div class="lbl">ลูกค้าใหม่ (คนทักเข้ามา)</div><div class="val">${fmtNum(total.newCust)}</div>
         <div class="sub">แชทใหม่ ${fmtNum(total.chatNew)} • เบอร์โทรใหม่ ${fmtNum(total.phoneNew)}${phoneRate != null ? ` (${(phoneRate*100).toFixed(1)}% ของลูกค้าใหม่)` : ''}</div></div>
-      <div class="conv-hero light"><div class="lbl">ยอดออเดอร์ (จากสถิติหน้า)</div><div class="val">${fmtNum(total.orders)}</div>
-        <div class="sub">ออเดอร์ในไฟล์ leads ช่วงเดียวกัน ${fmtNum(p.orders)} รายการ</div></div>
+      <div class="conv-hero light"><div class="lbl">ปิดการขาย (แอดมิน)</div><div class="val">${fmtNum(totalCloses)}</div>
+        <div class="sub">ยอดออเดอร์จากสถิติหน้า ${fmtNum(total.orders)} • ออเดอร์ทั้งหมดในไฟล์ leads ${fmtNum(p.orders)} รายการ</div></div>
     </div>
     <div style="overflow-x:auto;">
       <table class="conv-table">
-        <thead><tr><th>เพจ</th><th>ลูกค้าใหม่</th><th>แชทใหม่</th><th>เบอร์โทรใหม่</th><th>ยอดออเดอร์</th><th>Conversion</th><th>ปิดการขาย (ไฟล์ leads)</th></tr></thead>
+        <thead><tr><th>เพจ</th><th>ลูกค้าใหม่</th><th>แชทใหม่</th><th>เบอร์โทรใหม่</th><th>ยอดออเดอร์ (Pancake)</th><th>Conversion</th><th>ปิดการขาย (แอดมิน)</th></tr></thead>
         <tbody>${rowsHtml || '<tr><td colspan="7" style="color:var(--text-muted)">ไม่มีเพจของทีมนี้ในไฟล์สถิติ</td></tr>'}
           <tr class="total-row"><td>รวม</td><td>${fmtNum(total.newCust)}</td><td>${fmtNum(total.chatNew)}</td><td>${fmtNum(total.phoneNew)}</td>
             <td>${fmtNum(total.orders)}</td><td><b style="color:${tRate == null ? 'var(--text-muted)' : (tHit ? 'var(--good)' : 'var(--critical)')}">${pctTxt(tRate)}</b></td>
-            <td style="color:var(--text-muted)">${fmtNum(p.orders)}</td></tr>
+            <td><b>${fmtNum(totalCloses)}</b></td></tr>
         </tbody>
       </table>
     </div>
@@ -4678,7 +4685,8 @@ function renderPageConversion(){
     <div style="font-size:11.5px;color:var(--text-muted);margin-top:12px;line-height:1.75;">
       • <b>ลูกค้าใหม่</b> = คนที่ทักเข้ามาครั้งแรกในวันนั้น • <b>ยอดออเดอร์</b> = ออเดอร์ที่เกิดในเพจนั้น (ตัวเลขของ Pancake เอง)<br>
       • ตัวเลขนี้จะไม่ตรงกับคอลัมน์ % ในไฟล์ Pancake เป๊ะ ๆ เพราะ Pancake คิด % <b>รายวัน</b> แล้วเอามาบวกกัน (ในชีต by_page จึงทะลุ 100%) ระบบนี้คิดใหม่จากผลรวมจริง<br>
-      • คอลัมน์ “ปิดการขาย (ไฟล์ leads)” คือออเดอร์ที่ระบุเพจได้จากไฟล์ leads — ใช้เทียบว่าตัวเลขสองแหล่งใกล้เคียงกันไหม ถ้าต่างกันมากแปลว่ามีออเดอร์ที่ Lead Intro ระบุเพจไม่ได้${covNote}${skipNote}
+      • <b>ปิดการขาย (แอดมิน)</b> = ออเดอร์ที่ระบุเพจได้จากไฟล์ leads — ใช้เป็นตัวตั้งของ Conversion<br>
+      • แถว “รวม” นับเฉพาะเพจของแอดมินในตารางนี้ จึงน้อยกว่าออเดอร์ทั้งหมดในไฟล์ leads (${fmtNum(p.orders)} รายการ) ที่รวมออเดอร์ซึ่ง Lead Intro ระบุเพจไม่ได้ไว้ด้วย${covNote}${skipNote}
     </div>`);
 }
 
