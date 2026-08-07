@@ -179,8 +179,8 @@
   .period-scroll .chip{ flex:0 0 auto; }
 /* ---------- แถบเลือกทีม (Looker-style drill-down) ---------- */
 .team-bar{ margin:0 0 18px; }
-.team-cards{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
-.team-card{ position:relative; text-align:left; cursor:pointer; font-family:var(--font);
+.team-cards{ display:grid; grid-template-columns:repeat(var(--tcols,4),minmax(0,1fr)); gap:10px; align-items:stretch; }
+.team-card{ position:relative; text-align:left; cursor:pointer; font-family:var(--font); min-width:0; display:flex; flex-direction:column;
   background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:12px 14px 13px;
   transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease; overflow:hidden; }
 .team-card::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--tc,var(--baseline)); opacity:.55; }
@@ -192,7 +192,7 @@
 .team-card .tc-name .tc-sub{ font-size:10.5px; font-weight:600; color:var(--text-muted); }
 .team-card .tc-val{ font-size:19px; font-weight:700; letter-spacing:-.3px; margin-top:5px; color:var(--text-primary); }
 .team-card .tc-meta{ font-size:11px; color:var(--text-muted); margin-top:3px; line-height:1.55; }
-.team-card .tc-share{ height:4px; border-radius:99px; background:var(--surface-3,rgba(128,128,128,.18)); margin-top:8px; overflow:hidden; }
+.team-card .tc-share{ height:4px; margin-top:auto; border-radius:99px; background:var(--surface-3,rgba(128,128,128,.18)); overflow:hidden; }
 .team-card .tc-share i{ display:block; height:100%; background:var(--tc,var(--baseline)); border-radius:99px; }
 .team-people{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:11px; }
 .team-people .lbl{ font-size:11.5px; color:var(--text-muted); font-weight:700; }
@@ -206,7 +206,9 @@
 .filter-crumb .clear{ cursor:pointer; color:var(--series-1); font-weight:700; text-decoration:underline; margin-left:6px; }
 .heat-table tr.clickable-row{ cursor:pointer; }
 .heat-table tr.clickable-row:hover td{ filter:brightness(1.06); }
-@media (max-width:820px){ .team-cards{ grid-template-columns:1fr 1fr; } }
+@media (max-width:1040px){ .team-cards{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width:820px){ .team-cards{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:480px){ .team-cards{ grid-template-columns:1fr; } }
   .step-btn{ flex:0 0 auto; width:34px; height:34px; border-radius:10px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); font-size:15px; font-weight:700; display:flex; align-items:center; justify-content:center; line-height:1; }
   .step-btn:disabled{ opacity:.35; cursor:default; }
 
@@ -424,8 +426,6 @@
       </div>
     </div>
 
-    <div class="team-bar" id="teamBar"></div>
-
     <div class="kpi-row" id="kpiRow"></div>
 
     <div class="grid2">
@@ -532,6 +532,8 @@
       </div>
       <div id="setChart"></div>
     </div>
+
+    <div class="team-bar" id="teamBar" style="margin:0 0 14px;"></div>
 
     <div class="card" style="margin-bottom:14px;" id="mcCard">
       <div class="card-head">
@@ -4786,9 +4788,10 @@ function renderTeamBar(){
   const filtered = state.team !== 'all' || state.person;
   const crumb = `<div class="filter-crumb">กำลังดู: <b>${TEAM_LABEL(state.team)}</b>${state.person ? ' › <b>' + state.person + '</b>' : ''}
     ${filtered ? '<span class="clear" data-clear="1">ล้างตัวกรอง</span>' : ''}
-    <span style="margin-left:10px;">• ทุกการ์ดด้านล่างถูกกรองตามนี้ทั้งหมด</span></div>`;
+    <span style="margin-left:10px;">• ทุกการ์ดในหน้านี้ถูกกรองตามนี้ทั้งหมด</span></div>`;
 
-  host.innerHTML = `<div class="team-cards">${cards}</div>${peopleHtml}${crumb}`;
+  const nCards = (cards.match(/class="team-card/g) || []).length || 4;
+  host.innerHTML = `<div class="team-cards" style="--tcols:${nCards}">${cards}</div>${peopleHtml}${crumb}`;
   host.querySelectorAll('button[data-team]').forEach(b => b.onclick = () => {
     const k = b.dataset.team;
     applyScope(state.team === k ? 'all' : k, '');   // กดซ้ำที่ทีมเดิม = ยกเลิกตัวกรอง
