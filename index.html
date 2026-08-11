@@ -3407,11 +3407,22 @@ const PRODUCT_COLOR = {
   'GABA'                            : 'var(--series-5)',  // ม่วง
 };
 
+/* ---- แก้ชื่อโปรเฉพาะเดือน ----
+   ชื่อโปรตั้งอัตโนมัติจาก "จำนวนชิ้น + มีส่วนลดไหม" ซึ่งบางโปรไม่ตรงกับโปรจริงที่ยิงจริง
+   เช่น มิ.ย. 2569 ที่ขึ้นว่า "Daily Oils Blend ซื้อ 4 ชิ้น (ราคาปกติ)" จริง ๆ คือโปร "3 แถม 1"
+   (ลูกค้าจ่ายราคา 3 ชิ้น ได้ของ 4 ชิ้น ระบบจึงเห็นเป็นซื้อ 4 ชิ้นแบบไม่มีส่วนลด)
+   เพิ่มโปรที่ต้องแก้ชื่อได้ที่นี่: 'YYYY-MM|ชื่อที่ระบบตั้งให้' : 'ชื่อที่ต้องการ'          */
+const PROMO_RENAME = {
+  '2026-06|Daily Oils Blend ซื้อ 4 ชิ้น (ราคาปกติ)': 'Daily Oils Blend 3 แถม 1',
+};
+
 function promoLabel(row){
   const q = Math.round(Number(row['Quantity']) || 0);
   const disc = Number(row['Discount']) || 0;
   const tag = disc > 0 ? 'ลดพิเศษ' : 'ราคาปกติ';
-  return `${shortProductName(row['Product Name'])} ซื้อ ${q} ชิ้น (${tag})`;
+  const base = `${shortProductName(row['Product Name'])} ซื้อ ${q} ชิ้น (${tag})`;
+  const mk = String(row.__date || '').slice(0, 7);
+  return PROMO_RENAME[mk + '|' + base] || base;
 }
 
 // Payment method is not its own field in the export — it's embedded as free text inside
@@ -5685,12 +5696,24 @@ function renderPageConversion(){
 
   // ---- แยกรายเพจ (กรองตามทีมที่เลือก) ----
   const inTeam = k => !teamPageKeys || teamPageKeys.indexOf(k) >= 0;
-  const closesByPage = {};
-  (p.conversion && p.conversion.pages || []).forEach(x => { closesByPage[x.key] = x.closes; });
+  /* ---- ปิดการขาย (leads) ต้องนับ "เฉพาะวันที่ไฟล์สถิติหน้าครอบคลุม" เท่านั้น ----
+     บั๊กเดิม: ตัวตั้งเอาออเดอร์ "ทั้งช่วงที่เลือก" (เช่นทั้งเดือน ก.ค. = 2,487 ออเดอร์)
+     แต่ตัวหาร "ลูกค้าใหม่" มีเฉพาะวันที่อัปโหลดไฟล์สถิติหน้าไว้ (เช่น 25–31 ก.ค. = 1,458 คน)
+     -> คนละช่วงวัน Conversion เลยทะลุ 100% (170.6%)
+     แก้: กรอง leads ให้เหลือเฉพาะวันเดียวกับ ps.dates ก่อนนับ ตัวตั้ง/ตัวหารจึงเทียบกันได้ตรง   */
+  const psDateSet = new Set(ps.dates);
+  const psLeads = (p._rawLeads || []).filter(r => psDateSet.has(r.__date));
+  const psLeadOrders = psLeads.length;
+  const closesByPage = {}, closesByDate = {};
+  psLeads.forEach(r => {
+    const k = canonLeadPage(r);
+    closesByPage[k] = (closesByPage[k] || 0) + 1;
+    if(PAGE_DEF_BY_KEY[k]) closesByDate[r.__date] = (closesByDate[r.__date] || 0) + 1;
+  });
   const pageRows = Object.keys(ps.perPage).filter(inTeam).map(k => {
     const d = PAGE_DEF_BY_KEY[k] || { page:k, platform:'', color:'var(--baseline)' };
     const m = ps.perPage[k];
-    const closes = closesByPage[k];
+    const closes = closesByPage[k] || 0;   // นับจาก leads ในวันเดียวกันแล้ว 0 = ปิดไม่ได้จริง ๆ (ไม่ใช่ "ไม่มีข้อมูล")
     return { key:k, page:d.page, platform:d.platform, color:d.color, m, closes,
              conv: (m.newCust && closes != null) ? closes / m.newCust : null };
   }).sort((a, b) => pageOrderIdx(a.key) - pageOrderIdx(b.key));
@@ -5737,12 +5760,14 @@ function renderPageConversion(){
 
   // ---- ตารางรายวัน ----
   const dailyHtml = !psShowDaily ? '' : `<div style="overflow-x:auto;margin-top:6px;">
-    <table class="conv-table"><thead><tr><th>วันที่</th><th>ลูกค้าใหม่</th><th>แชทใหม่</th><th>เบอร์โทรใหม่</th><th>ยอดออเดอร์</th><th>Conversion (ยอดออเดอร์ Pancake)</th></tr></thead>
+    <table class="conv-table"><thead><tr><th>วันที่</th><th>ลูกค้าใหม่</th><th>แชทใหม่</th><th>เบอร์โทรใหม่</th><th>ยอดออเดอร์ (Pancake)</th><th>ปิดการขาย (แอดมิน)</th><th>Conversion</th></tr></thead>
     <tbody>${ps.dates.map(d => {
-      const m = ps.daily[d], c = psConv(m);
+      const m = ps.daily[d];
+      const cl = closesByDate[d] || 0;
+      const c = m.newCust ? cl / m.newCust : null;
       const dd = new Date(d + 'T00:00:00');
       return `<tr><td>${THAI_DOW[dd.getDay()]} ${fmtDM(dd)}</td><td>${fmtNum(m.newCust)}</td><td>${fmtNum(m.chatNew)}</td>
-        <td>${fmtNum(m.phoneNew)}</td><td>${fmtNum(m.orders)}</td><td>${bar(c, 'var(--series-1)')}</td></tr>`;
+        <td>${fmtNum(m.phoneNew)}</td><td>${fmtNum(m.orders)}</td><td>${fmtNum(cl)}</td><td>${bar(c, 'var(--series-1)')}</td></tr>`;
     }).join('')}</tbody></table></div>`;
 
   /* ไฟล์ที่รวมหลายเพจ: แยกรายเพจ x รายวันไม่ได้ แต่ยังโชว์สัดส่วนรายเพจ "ของทั้งไฟล์" ได้
@@ -5774,8 +5799,15 @@ function renderPageConversion(){
 
   const skipNote = ps.skipped.length
     ? `<br>• ข้ามไฟล์ที่ข้อมูลทับซ้อนกับไฟล์อื่น (กันนับซ้ำ): <b>${ps.skipped.join(', ')}</b>` : '';
-  const covNote = ps.dates.length < (p.dates || []).length
-    ? `<br>• ไฟล์สถิติครอบคลุม <b>${ps.dates.length}</b> วัน จาก <b>${(p.dates||[]).length}</b> วันของช่วงนี้ (${fmtDM(new Date(ps.dates[0]+'T00:00:00'))} – ${fmtDM(new Date(ps.dates[ps.dates.length-1]+'T00:00:00'))}) — ตัวเลขจึงเป็นของเฉพาะวันที่มีไฟล์` : '';
+  const partial = ps.dates.length < (p.dates || []).length;
+  const covRange = ps.dates.length ? `${fmtDM(new Date(ps.dates[0]+'T00:00:00'))} – ${fmtDMY(new Date(ps.dates[ps.dates.length-1]+'T00:00:00'))}` : '';
+  const covNote = partial
+    ? `<br>• ไฟล์สถิติครอบคลุม <b>${ps.dates.length}</b> วัน จาก <b>${(p.dates||[]).length}</b> วันของช่วงนี้ (${covRange}) — ตัวเลขจึงเป็นของเฉพาะวันที่มีไฟล์` : '';
+  const covBanner = partial
+    ? `<div style="margin:2px 0 14px;padding:10px 14px;border-radius:12px;background:rgba(250,178,25,0.14);border:1px solid rgba(250,178,25,0.45);font-size:12.5px;line-height:1.6;">
+        ⚠️ <b>ตัวเลขนี้เป็นของ ${covRange} เท่านั้น (${ps.dates.length} วัน จาก ${(p.dates||[]).length} วันของ “${p.label}”)</b> —
+        มีไฟล์ “สถิติหน้า” ของ Pancake แค่วันเหล่านี้ ระบบจึงนับปิดการขายเฉพาะวันเดียวกันเพื่อให้เทียบกันได้ตรง
+        • อยากได้ทั้งเดือน ให้ export สถิติหน้าของวันที่ขาดมาเพิ่ม</div>` : '';
 
   wrap(`
     <div class="card-head">
@@ -5783,6 +5815,7 @@ function renderPageConversion(){
       <div class="card-sub">ลูกค้าใหม่จากไฟล์ <b>สถิติหน้า</b> ของ Pancake • สูตร: <b>ปิดการขาย (แอดมิน) ÷ ลูกค้าใหม่</b> • เป้า ${(tConv*100).toFixed(0)}%</div></div>
       <button class="table-toggle" onclick="psToggleDaily()">${psShowDaily ? 'ซ่อนรายวัน' : 'ดูรายวัน'}</button>
     </div>
+    ${covBanner}
     <div class="conv-hero-row">
       <div class="conv-hero"><div class="lbl">Conversion รวม</div>
         <div class="val" style="color:${tRate == null ? 'inherit' : (tHit ? '#7ee787' : '#ff9d9d')}">${pctTxt(tRate)}</div>
@@ -5790,7 +5823,7 @@ function renderPageConversion(){
       <div class="conv-hero light"><div class="lbl">ลูกค้าใหม่ (คนทักเข้ามา)</div><div class="val">${fmtNum(total.newCust)}</div>
         <div class="sub">แชทใหม่ ${fmtNum(total.chatNew)} • เบอร์โทรใหม่ ${fmtNum(total.phoneNew)}${phoneRate != null ? ` (${(phoneRate*100).toFixed(1)}% ของลูกค้าใหม่)` : ''}</div></div>
       <div class="conv-hero light"><div class="lbl">ปิดการขาย (แอดมิน)</div><div class="val">${fmtNum(totalCloses)}</div>
-        <div class="sub">ยอดออเดอร์จากสถิติหน้า ${fmtNum(total.orders)} • ออเดอร์ทั้งหมดในไฟล์ leads ${fmtNum(p.orders)} รายการ</div></div>
+        <div class="sub">นับเฉพาะวันที่มีไฟล์สถิติหน้า • ยอดออเดอร์ที่ Pancake นับเอง ${fmtNum(total.orders)} • ออเดอร์ในไฟล์ leads ช่วงวันเดียวกัน ${fmtNum(psLeadOrders)} รายการ</div></div>
     </div>
     <div style="overflow-x:auto;">
       <table class="conv-table">
@@ -5808,7 +5841,8 @@ function renderPageConversion(){
       • <b>ลูกค้าใหม่</b> = คนที่ทักเข้ามาครั้งแรกในวันนั้น • <b>ยอดออเดอร์</b> = ออเดอร์ที่เกิดในเพจนั้น (ตัวเลขของ Pancake เอง)<br>
       • ตัวเลขนี้จะไม่ตรงกับคอลัมน์ % ในไฟล์ Pancake เป๊ะ ๆ เพราะ Pancake คิด % <b>รายวัน</b> แล้วเอามาบวกกัน (ในชีต by_page จึงทะลุ 100%) ระบบนี้คิดใหม่จากผลรวมจริง<br>
       • <b>ปิดการขาย (แอดมิน)</b> = ออเดอร์ที่ระบุเพจได้จากไฟล์ leads — ใช้เป็นตัวตั้งของ Conversion<br>
-      • แถว “รวม” นับเฉพาะเพจของแอดมินในตารางนี้ จึงน้อยกว่าออเดอร์ทั้งหมดในไฟล์ leads (${fmtNum(p.orders)} รายการ) ที่รวมออเดอร์ซึ่ง Lead Intro ระบุเพจไม่ได้ไว้ด้วย${covNote}${skipNote}
+      • <b>ตัวตั้งกับตัวหารนับจากวันเดียวกันเสมอ</b> — ปิดการขายนับเฉพาะวันที่มีไฟล์สถิติหน้า ไม่ใช่ทั้งช่วงที่เลือก (ทั้งช่วงมี ${fmtNum(p.orders)} ออเดอร์)<br>
+      • แถว “รวม” นับเฉพาะเพจของแอดมินในตารางนี้ จึงน้อยกว่าออเดอร์ในไฟล์ leads ช่วงวันเดียวกัน (${fmtNum(psLeadOrders)} รายการ) ที่รวมออเดอร์ซึ่ง Lead Intro ระบุเพจไม่ได้ไว้ด้วย${covNote}${skipNote}
     </div>`);
 }
 
