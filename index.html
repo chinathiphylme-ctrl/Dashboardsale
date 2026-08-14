@@ -319,6 +319,19 @@
 
   @media (max-width:820px){ .kpi-row{ grid-template-columns:1fr 1fr; } .grid2{ grid-template-columns:1fr; } .conv-hero-row{ grid-template-columns:1fr; }
     .mo-flow{ grid-template-columns:1fr; } .mo-flow .op{ display:none; } }
+
+  /* ---- การ์ด "สรุปยอดขายส่งทีม" (คัดลอกไปวางในไลน์ได้เลย) ---- */
+  .rp-controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .rp-field{ display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:600; color:var(--text-secondary); }
+  .rp-field input{ width:120px; padding:9px 12px; border:1px solid var(--border); border-radius:10px; font-size:13px;
+    font-family:var(--font); background:var(--surface-1); color:var(--text-primary); }
+  .rp-out{ white-space:pre-wrap; word-break:break-word; font-family:var(--font); font-size:13.5px; line-height:1.8;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:16px 18px;
+    color:var(--text-primary); max-height:560px; overflow:auto; margin-top:12px; }
+  .rp-warn{ font-size:12.5px; line-height:1.7; border-radius:12px; padding:10px 13px; margin-bottom:12px;
+    background:rgba(250,178,25,0.12); border:1px solid rgba(250,178,25,0.45); color:var(--text-primary); }
+  .rp-note{ font-size:12px; color:var(--text-muted); line-height:1.65; margin-top:10px; }
+  .rp-copied{ font-size:12.5px; font-weight:700; color:var(--good); }
 </style>
 </head>
 <body>
@@ -679,9 +692,27 @@
   <!-- ==================== BACKEND / DATA MANAGEMENT (moved to bottom for presentation) ==================== -->
   <button class="backend-toggle" id="backendToggle">
     <span>⚙ จัดการข้อมูล &amp; นำเข้า–ส่งออก (หลังบ้าน)</span>
-    <span class="hint">อัปโหลด/เพิ่มไฟล์ • Export MC / POS • สร้างไฟล์เว็บ <span class="caret">▾</span></span>
+    <span class="hint">สรุปยอดขายส่งทีม • อัปโหลด/เพิ่มไฟล์ • Export MC / POS • สร้างไฟล์เว็บ <span class="caret">▾</span></span>
   </button>
   <div id="backendBody" class="collapsed">
+
+    <!-- ==================== สรุปยอดขายส่งทีม (ก๊อปวางในไลน์ได้เลย) ==================== -->
+    <div class="card" style="margin-bottom:14px;" id="reportCard">
+      <div class="card-head">
+        <div><h3>สรุปยอดขายส่งทีม</h3><div class="card-sub" id="rpSub"></div></div>
+        <button class="btn primary" id="btnRpCopy">📋 คัดลอกข้อความ</button>
+      </div>
+      <div id="rpWarn"></div>
+      <div class="rp-controls">
+        <label class="rp-field">Focus Set (บาท)
+          <input type="number" id="rpFocusSet" min="0" step="1" placeholder="1290">
+        </label>
+        <span class="rp-copied" id="rpCopied" style="display:none;">คัดลอกแล้ว ✓</span>
+      </div>
+      <div class="rp-out" id="rpOut"></div>
+      <div class="rp-note" id="rpNote"></div>
+    </div>
+
     <div class="top-actions" id="backendActions" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
       <button class="btn" id="btnAddFile">+ เพิ่มไฟล์ (Pancake / ReadyPlanet)</button>
       <button class="btn" id="btnAddChat" title="ไฟล์ pages_statistics_page_*.xlsx จาก Pancake &gt; สถิติ &gt; สถิติหน้า — ใช้คำนวณ Conversion Rate (ยอดออเดอร์ ÷ ลูกค้าใหม่)">+ เพิ่มไฟล์สถิติหน้า Pancake (Conversion)</button>
@@ -5988,12 +6019,212 @@ function renderTeamBar(){
   if(cl) cl.onclick = () => applyScope('all', '');
 }
 
+/* ==================== สรุปยอดขายส่งทีม (ข้อความล้วน คัดลอกไปวางในไลน์) ====================
+   สร้างจาก "ช่วงที่เลือกอยู่บนแดชบอร์ด" ทั้งหมด ไม่ได้คำนวณใหม่แยกต่างหาก
+   ตัวเลขทุกตัวจึงตรงกับการ์ดอื่น ๆ บนหน้าเดียวกันเสมอ (ยอดสุทธิ หักออเดอร์ที่ยกเลิกแล้ว)   */
+const RP_FOCUS_KEY = 'hylme_focus_set_v1';
+const RP_FOCUS_DEFAULT = 1290;
+// ชื่อช่องทางที่ใช้ "ในรายงาน" — สั้นกว่าบนแดชบอร์ด ให้ตรงกับที่ทีมเคยส่งกันมา
+const RP_CH_NAME = {
+  'Facebook Hylme'                  : 'Facebook Hylme',
+  'Facebook Hylme ครบจบเรื่องไขมัน'  : 'Facebook Hylme ครบจบเรื่องไขมัน',
+  'Facebook Hylme ครบจบเรื่องนอน'    : 'Facebook Hylme ครบจบเรื่องนอน',
+  'Facebook Hylme ครบจบเรื่องผิว'    : 'Facebook Hylme ครบจบเรื่องผิว',
+  'Instagram'                       : 'Instagram',
+  [CRM_CH_LABEL]                    : 'CRM',
+  [TELESALES_CH_LABEL]              : 'Telesale',
+};
+// เพจของทีมแอดมินในส่วน Conversion — เรียงตาม PAGE_DEFS
+const RP_PAGE_NAME = {
+  fb_hylme  : 'Facebook Hylme',
+  fb_kaimun : 'Facebook Hylme ครบจบเรื่องไขมัน',
+  fb_non    : 'Facebook Hylme ครบจบเรื่องนอน',
+  fb_piw    : 'Facebook Hylme ครบจบเรื่องผิว',
+  ig        : 'Instagram',
+};
+const RP_MKP_ORDER = ['Shopee', 'Lazada', 'Tiktok'];   // โชว์ครบทุกตัวเสมอ แม้วันนั้นจะเป็น 0
+const rpIsMkp = ch => MKP_CHANNEL_RE.test(String(ch || ''));
+const rpNum   = n => Math.round(Number(n) || 0).toLocaleString('en-US');
+const rpPct   = v => (v == null ? '—' : (v * 100).toFixed(1) + '%');
+// "2026-08-13" -> "13.08.26"
+function rpShortDate(ds){
+  const m = String(ds || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}.${m[2]}.${m[1].slice(2)}` : String(ds || '');
+}
+function rpFocusValue(){
+  const el = document.getElementById('rpFocusSet');
+  const v = el ? Number(el.value) : NaN;
+  return (isFinite(v) && v > 0) ? v : RP_FOCUS_DEFAULT;
+}
+
+function buildSalesReportText(){
+  const p = currentPeriod();
+  if(!p) return { text:'ยังไม่มีข้อมูลในช่วงที่เลือก', notes:[] };
+  const notes = [];
+  const L = [];
+
+  // ---- หัวรายงาน: รายวันใช้วันเดียว ช่วงอื่นใช้ วันแรก–วันสุดท้ายที่มีออเดอร์ ----
+  const dates = (p.dates || []).slice().sort();
+  const head = (dates.length <= 1)
+    ? rpShortDate(dates[0] || p.date)
+    : `${rpShortDate(dates[0])} - ${rpShortDate(dates[dates.length - 1])}`;
+  L.push(`ยอดขาย ${head}`);
+  L.push('ช่องทาง');
+
+  // ---- ช่องทางหน้าร้านเรา (ไม่รวมมาร์เก็ตเพลส) — โชว์เฉพาะช่องทางที่มีออเดอร์ ----
+  const all = p.channels || [];
+  const own = all.filter(c => !rpIsMkp(c.channel) && c.orders > 0);
+  own.forEach(c => {
+    L.push(`${RP_CH_NAME[c.channel] || c.channel} ${rpNum(c.orders)} ออเดอร์`);
+    L.push(`ยอด ${rpNum(c.sales)} บาท`);
+  });
+
+  // ---- Focus Set: นับออเดอร์ที่มูลค่ารวม VAT ตรงกับค่าที่กรอกไว้พอดี ----
+  const focus = rpFocusValue();
+  const hit = (p.sets || []).find(s => Math.abs(s.value - focus) < 0.01);
+  L.push(`Focus Set : ${rpNum(focus)}.-`);
+  L.push(`ขายได้ ${rpNum(hit ? hit.count : 0)} Set`);
+  L.push('');
+
+  const ownSales  = own.reduce((s, c) => s + c.sales, 0);
+  L.push(`ยอดขายรวม ${rpNum(ownSales)} บาท`);
+  L.push('____________');
+
+  // ---- มาร์เก็ตเพลส: โชว์ครบ Shopee / Lazada / Tiktok เสมอ ----
+  const mkpRows = all.filter(c => rpIsMkp(c.channel));
+  const mkpByKey = {};
+  mkpRows.forEach(c => {
+    const k = mkpChannelKey(c.channel);
+    const r = mkpByKey[k] = mkpByKey[k] || { orders:0, sales:0 };
+    r.orders += c.orders; r.sales += c.sales;
+  });
+  let mkpSales = 0;
+  RP_MKP_ORDER.forEach(name => {
+    const r = mkpByKey[mkpChannelKey(name)] || { orders:0, sales:0 };
+    mkpSales += r.sales;
+    L.push(`${name} ${rpNum(r.orders)} ออเดอร์`);
+    L.push(`ยอด ${rpNum(r.sales)} บาท`);
+  });
+  // ช่องทางมาร์เก็ตเพลสอื่นที่ไม่ได้อยู่ในลิสต์ 3 ตัว (ถ้ามี) — เติมท้ายไว้ ไม่ให้ยอดหาย
+  const other = mkpByKey['mkp'];
+  if(other && (other.orders || other.sales)){
+    L.push(`Marketplace อื่น ๆ ${rpNum(other.orders)} ออเดอร์`);
+    L.push(`ยอด ${rpNum(other.sales)} บาท`);
+    mkpSales += other.sales;
+  }
+  L.push('_____________');
+  L.push('รวมยอดขายทุกช่องทาง');
+  L.push(`ยอด ${rpNum(ownSales + mkpSales)} บาท`);
+
+  // ---- Conversion Rate ทีมแอดมิน — ใช้แหล่งเดียวกับการ์ด Conversion บนหน้านี้ ----
+  const ps = collectPageStat(dates);
+  const closesByPage = {};
+  ((p.conversion && p.conversion.pages) || []).forEach(x => { closesByPage[x.key] = x.closes; });
+  if(!ps || ps.empty){
+    notes.push(ps ? 'มีไฟล์สถิติหน้าอยู่ แต่ไม่มีวันไหนตรงกับช่วงที่เลือก — รายงานจึงไม่มีส่วน Conversion'
+                  : 'ยังไม่ได้อัปโหลดไฟล์ “สถิติหน้า” ของ Pancake — รายงานจึงไม่มีส่วน Conversion');
+  } else {
+    const rows = Object.keys(ps.perPage)
+      .filter(k => RP_PAGE_NAME[k])
+      .map(k => {
+        const m = ps.perPage[k];
+        const closes = closesByPage[k] || 0;
+        return { key:k, name:RP_PAGE_NAME[k], newCust:m.newCust || 0, closes,
+                 conv: m.newCust ? closes / m.newCust : null };
+      })
+      .filter(r => r.newCust > 0 || r.closes > 0)
+      .sort((a, b) => pageOrderIdx(a.key) - pageOrderIdx(b.key));
+
+    if(rows.length){
+      L.push('Conversion Rate ทีมแอดมิน');
+      rows.forEach(r => {
+        L.push(r.name);
+        L.push(`ลูกค้าใหม่ ${rpNum(r.newCust)} คน ปิดได้ ${rpNum(r.closes)} คน คิดเป็น ${rpPct(r.conv)}`);
+      });
+      const tNew = rows.reduce((s, r) => s + r.newCust, 0);
+      const tCls = rows.reduce((s, r) => s + r.closes, 0);
+      L.push(`รวมลูกค้าใหม่ ${rpNum(tNew)} คน ปิดได้ ${rpNum(tCls)} คน คิดเป็น ${rpPct(tNew ? tCls / tNew : null)}`);
+    }
+    // ไฟล์สถิติที่รวมหลายเพจไว้ก้อนเดียว แยกรายเพจไม่ได้ -> เตือนว่าตัวเลขอาจไม่ครบ
+    if(ps.combo) notes.push('มีไฟล์สถิติที่รวมหลายเพจไว้ในไฟล์เดียว แยกรายเพจไม่ได้ — ตัวเลข Conversion อาจไม่ครบทุกเพจ (export ทีละเพจจะแม่นกว่า)');
+    if(ps.coverage && dates.length){
+      const got = Number(String(ps.coverage).split('/')[0]);
+      if(got < dates.length) notes.push(`ไฟล์สถิติหน้าครอบคลุม ${ps.coverage} วันของช่วงนี้ — Conversion คิดจากเฉพาะวันที่มีไฟล์`);
+    }
+  }
+
+  return { text: L.join('\n'), notes };
+}
+
+function renderReportCard(){
+  const out = document.getElementById('rpOut'); if(!out) return;
+  const p = currentPeriod();
+  const sub = document.getElementById('rpSub');
+  if(sub) sub.textContent = p ? `${p.label} • ${p.range}` : '';
+
+  // เตือนเมื่อกรองทีม/รายคนอยู่ — รายงานฉบับนี้ตั้งใจให้เป็นยอดทั้งบริษัท
+  const warn = document.getElementById('rpWarn');
+  if(warn){
+    const filtered = (state.team && state.team !== 'all') || state.person;
+    warn.innerHTML = filtered
+      ? `<div class="rp-warn">⚠ ตอนนี้กรองข้อมูลอยู่ที่ <b>${TEAM_LABEL(state.team)}${state.person ? ' – ' + state.person : ''}</b>
+         รายงานจะได้เฉพาะยอดของตัวกรองนี้ — ถ้าต้องการยอดทั้งบริษัท ให้กด “ทุกทีม” ก่อน</div>`
+      : '';
+  }
+
+  const r = buildSalesReportText();
+  out.textContent = r.text;
+  const note = document.getElementById('rpNote');
+  if(note) note.innerHTML = r.notes.length ? r.notes.map(n => '• ' + n).join('<br>') : '';
+  const copied = document.getElementById('rpCopied');
+  if(copied) copied.style.display = 'none';
+}
+
+function copyReportText(){
+  const out = document.getElementById('rpOut');
+  const copied = document.getElementById('rpCopied');
+  const txt = out ? out.textContent : '';
+  if(!txt) return;
+  const done = () => {
+    if(!copied) return;
+    copied.style.display = 'inline';
+    setTimeout(() => { copied.style.display = 'none'; }, 2200);
+  };
+  // navigator.clipboard ใช้ไม่ได้เมื่อเปิดไฟล์แบบ file:// บางเบราว์เซอร์ -> มีทางสำรองไว้
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(done).catch(() => { fallbackCopy(txt, done); });
+  } else fallbackCopy(txt, done);
+}
+function fallbackCopy(txt, done){
+  const ta = document.createElement('textarea');
+  ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand('copy'); done(); }catch(e){}
+  document.body.removeChild(ta);
+}
+
 function renderAll(){
   renderTeamBar();
   renderChips(); renderCancelCard(); renderPageConversion(); renderTargetInputs(); renderKPI(); renderTrend(); renderProductChart(); renderPromoChart(); renderOrders(); renderPaymentChart();
   renderPaymentProducts(); renderChannelPie();
-  renderChannelHeatmap(); renderRepHeatmap(); renderSetChart(); renderMcCard(); renderContactCard(); renderPosCard(); renderRangeExport(); renderFooter();
+  renderChannelHeatmap(); renderRepHeatmap(); renderSetChart(); renderReportCard(); renderMcCard(); renderContactCard(); renderPosCard(); renderRangeExport(); renderFooter();
 }
+
+// ---- การ์ดสรุปยอดขายส่งทีม: ปุ่มคัดลอก + ช่อง Focus Set (จำค่าไว้ในเบราว์เซอร์เครื่องนี้) ----
+(function initReportCard(){
+  const inp = document.getElementById('rpFocusSet');
+  if(inp){
+    let saved = null;
+    try{ saved = localStorage.getItem(RP_FOCUS_KEY); }catch(e){}
+    inp.value = (saved != null && saved !== '') ? saved : RP_FOCUS_DEFAULT;
+    inp.addEventListener('input', () => {
+      try{ localStorage.setItem(RP_FOCUS_KEY, inp.value); }catch(e){}
+      renderReportCard();
+    });
+  }
+  const btn = document.getElementById('btnRpCopy');
+  if(btn) btn.addEventListener('click', copyReportText);
+})();
 
 document.getElementById('modeSeg').addEventListener('click', e => {
   const btn = e.target.closest('button[data-mode]'); if(!btn) return;
