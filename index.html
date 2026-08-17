@@ -277,6 +277,13 @@
   .rep-dot{ width:9px; height:9px; border-radius:3px; flex:0 0 auto; }
   .heat-scroll{ overflow-x:auto; }
 
+  /* ---------- ตารางไฟล์ที่นำเข้ามา (Import) ---------- */
+  .imp-table th, .imp-table td{ padding:6px 9px; }
+  .imp-table th.l, .imp-table td.l{ text-align:left; }
+  .imp-table td{ font-weight:500; }
+  .imp-table tr:last-child td{ border-bottom:none; }
+  .imp-del:hover{ border-color:var(--critical) !important; color:var(--critical) !important; }
+
   /* ---------- Backend (management) panel ---------- */
   .backend-toggle{ width:100%; text-align:left; background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:14px 18px; font-size:13.5px; font-weight:700; color:var(--text-primary); display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:26px; }
   .backend-toggle .hint{ font-size:11.5px; font-weight:500; color:var(--text-muted); }
@@ -452,6 +459,35 @@ body::after{
   font-family:var(--font); font-size:11.5px; font-weight:700; color:var(--text-secondary); cursor:pointer; }
 .side-seg button.active{ background:var(--accent-bg); color:var(--accent-on); }
 .side-period{ font-size:11px; color:var(--text-muted); font-weight:600; padding:0 4px; margin-top:-3px; }
+/* ---------- ตัวเลือกช่วงเวลาในแถบซ้าย (กดเปลี่ยนวันได้จากทุกจุดของหน้า) ---------- */
+.side-mode{ display:flex; padding:3px; border-radius:999px; }
+.side-mode button{ flex:1; border:none; background:transparent; padding:5px 4px; border-radius:999px;
+  font-family:var(--font); font-size:11px; font-weight:700; color:var(--text-secondary); cursor:pointer; white-space:nowrap; }
+.side-mode button.active{ background:var(--accent-bg); color:var(--accent-on); }
+.side-nav{ display:flex; align-items:center; gap:5px; }
+.side-step{ flex:0 0 27px; height:30px; border-radius:10px; border:1px solid var(--glass-border);
+  background:var(--glass-soft); color:var(--text-secondary); font-size:16px; line-height:1; cursor:pointer;
+  font-family:var(--font); display:flex; align-items:center; justify-content:center; transition:border-color .14s, color .14s; }
+.side-step:hover:not(:disabled){ color:var(--text-primary); border-color:var(--accent-bg); }
+.side-step:disabled{ opacity:.3; cursor:default; }
+.side-pick{ flex:1 1 auto; min-width:0; height:30px; border-radius:10px; border:1px solid var(--glass-border);
+  background:var(--glass-soft); color:var(--text-primary); font-family:var(--font); font-size:11.5px; font-weight:700;
+  cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; padding:0 9px; transition:border-color .14s; }
+.side-pick:hover{ border-color:var(--accent-bg); }
+.side-pick.open{ border-color:var(--accent-bg); }
+.side-pick b{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700; }
+.side-pick .cv{ font-size:9px; color:var(--text-muted); flex:0 0 auto; }
+.side-picklist{ display:flex; flex-direction:column; gap:2px; max-height:216px; overflow-y:auto;
+  padding:5px; border-radius:12px; background:var(--glass-soft); border:1px solid var(--glass-border); }
+.side-picklist::-webkit-scrollbar{ width:5px; }
+.side-picklist::-webkit-scrollbar-thumb{ background:var(--baseline); border-radius:6px; }
+.side-picklist button{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; text-align:left;
+  border:none; background:transparent; color:var(--text-secondary); font-family:var(--font); font-size:11.5px;
+  font-weight:600; padding:6px 9px; border-radius:8px; cursor:pointer; }
+.side-picklist button:hover{ background:var(--glass-2); color:var(--text-primary); }
+.side-picklist button.active{ background:var(--accent-bg); color:var(--accent-on); }
+.side-picklist .pl-l{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.side-picklist .pl-v{ flex:0 0 auto; font-size:10.5px; opacity:.75; font-variant-numeric:tabular-nums; }
 .side-team-list{ display:flex; flex-direction:column; gap:6px; overflow-y:auto; min-height:0; padding:0 3px 2px 0; }
 .side-team-list::-webkit-scrollbar{ width:5px; }
 .side-team-list::-webkit-scrollbar-thumb{ background:var(--baseline); border-radius:6px; }
@@ -577,7 +613,7 @@ footer{ border-top:1px solid var(--glass-line); }
   .side-foot{ margin-top:0; padding-top:0; border-top:none; flex-direction:row; }
   .side-foot .btn{ width:auto; }
   .side-teams{ flex:1 1 100%; width:100%; min-height:0; }
-  .side-seg{ max-width:280px; }
+  .side-seg, .side-mode, .side-nav{ max-width:280px; }
   .side-team-list{ flex-direction:row; overflow-x:auto; overflow-y:visible; gap:8px; padding-bottom:4px; }
   .side-team{ flex:0 0 186px; }
   .wrap{ width:100%; }
@@ -624,7 +660,7 @@ footer{ border-top:1px solid var(--glass-line); }
     <div id="uploadError"></div>
   </div>
 
-  <div class="file-strip" id="fileStrip"></div>
+  <!-- แถบชิปไฟล์ (file-strip) ถูกยุบไปรวมกับตาราง "⬇ ดาวน์โหลดข้อมูลที่นำเข้ามา (Import)" ในแผงหลังบ้านแล้ว -->
   <div class="sample-banner" id="dataQualityBanner"></div>
 
 
@@ -852,22 +888,6 @@ footer{ border-top:1px solid var(--glass-line); }
 
     <div class="card" style="margin-bottom:14px; display:none;" id="cancelCard"></div>
 
-    <div class="card" style="margin-bottom:14px;" id="mcCard">
-      <div class="card-head">
-        <div><h3>Export ใบปะหน้าส่งของ (MC Template)</h3><div class="card-sub">กรอกข้อมูลออเดอร์ในช่วงที่เลือกอยู่ (รายวัน/รายสัปดาห์/รายเดือนตามแท็บด้านบน — รอบวันนับแบบเที่ยงคืนถึงเที่ยงคืนตามปฏิทิน) ลงในไฟล์ template MC ให้อัตโนมัติ พร้อมอัปโหลดเข้า MyCloud ได้เลยโดยไม่ต้องกรอกเอง — ติ๊กเลือกได้ว่าจะ export ของผู้ดูแลคนไหนบ้าง</div></div>
-      </div>
-      <div id="mcRepFilter"></div>
-      <div id="mcStatusFilter"></div>
-      <div id="mcSummary" style="font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.9;"></div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn primary" id="btnExportMc">ดาวน์โหลด Excel (MC Template)</button>
-        <button class="table-toggle" id="btnMcPreview">ดูรายการที่จะ export</button>
-        <button class="table-toggle" id="btnMcFlagged">ดูรายการที่ต้องตรวจสอบ/ถูกข้าม</button>
-      </div>
-      <div id="mcPreviewWrap" style="display:none; margin-top:14px;"></div>
-      <div id="mcFlaggedWrap" style="display:none; margin-top:14px;"></div>
-    </div>
-
     <div class="card" style="margin-bottom:14px;" id="contactCard">
       <div class="card-head">
         <div><h3>Export ข้อมูลลูกค้า (Contact Template)</h3>
@@ -903,6 +923,22 @@ footer{ border-top:1px solid var(--glass-line); }
       </div>
       <div id="posSummary" style="font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.9;"></div>
       <button class="btn primary" id="btnExportPos">ดาวน์โหลด Excel (POS Transaction)</button>
+    </div>
+
+    <div class="card" style="margin-bottom:14px;" id="mcCard">
+      <div class="card-head">
+        <div><h3>Export ใบปะหน้าส่งของ (MC Template)</h3><div class="card-sub">กรอกข้อมูลออเดอร์ในช่วงที่เลือกอยู่ (รายวัน/รายสัปดาห์/รายเดือนตามแท็บด้านบน — รอบวันนับแบบเที่ยงคืนถึงเที่ยงคืนตามปฏิทิน) ลงในไฟล์ template MC ให้อัตโนมัติ พร้อมอัปโหลดเข้า MyCloud ได้เลยโดยไม่ต้องกรอกเอง — ติ๊กเลือกได้ว่าจะ export ของผู้ดูแลคนไหนบ้าง</div></div>
+      </div>
+      <div id="mcRepFilter"></div>
+      <div id="mcStatusFilter"></div>
+      <div id="mcSummary" style="font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.9;"></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn primary" id="btnExportMc">ดาวน์โหลด Excel (MC Template)</button>
+        <button class="table-toggle" id="btnMcPreview">ดูรายการที่จะ export</button>
+        <button class="table-toggle" id="btnMcFlagged">ดูรายการที่ต้องตรวจสอบ/ถูกข้าม</button>
+      </div>
+      <div id="mcPreviewWrap" style="display:none; margin-top:14px;"></div>
+      <div id="mcFlaggedWrap" style="display:none; margin-top:14px;"></div>
     </div>
 
     <!-- ==================== EXPORT TRANSACTION ตามช่วงวันที่ (เลือกเองได้) ==================== -->
@@ -949,7 +985,7 @@ footer{ border-top:1px solid var(--glass-line); }
   <!-- ==================== BACKEND / DATA MANAGEMENT (moved to bottom for presentation) ==================== -->
   <button class="backend-toggle" id="backendToggle">
     <span>⚙ จัดการข้อมูล &amp; นำเข้า–ส่งออก (หลังบ้าน)</span>
-    <span class="hint">สรุปยอดขายส่งทีม • อัปโหลด/เพิ่มไฟล์ • Export MC / POS • สร้างไฟล์เว็บ <span class="caret">▾</span></span>
+    <span class="hint">สรุปยอดขายส่งทีม • อัปโหลด/ค้นหา/ลบไฟล์ • ออเดอร์ยกเลิก • Export POS • สร้างไฟล์เว็บ <span class="caret">▾</span></span>
   </button>
   <div id="backendBody" class="collapsed">
 
@@ -981,6 +1017,8 @@ footer{ border-top:1px solid var(--glass-line); }
       <button class="btn" id="btnScanCancelBackend" title="อ่านไฟล์ export จาก MyCloud เพื่อหาออเดอร์ที่ถูกยกเลิก/ตีกลับ/คืนของ แล้วหักออกจากยอดในแดชบอร์ด (ไม่นำเข้าออเดอร์ใหม่)">🚫 ตรวจออเดอร์ยกเลิก</button>
       <button class="btn" id="btnReset">เริ่มใหม่</button>
     </div>
+    <!-- การ์ด "ออเดอร์ที่ถูกยกเลิก" ถูกย้ายมาวางตรงนี้ตอนโหลดหน้า (ดู setupBackendPanel) -->
+    <div id="cancelSlot"></div>
     <div id="segBox" style="background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;">
       <div style="font-size:13.5px;font-weight:700;margin-bottom:4px;">⬇ Export ข้อมูลดิบสำหรับ Segmentation</div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.65;">ได้ไฟล์ Excel 5 ชีต — <b>customers</b> (Feature Table + RFM + gluta_segment พร้อมใช้), <b>segment_summary</b> (สรุปจำนวนต่อกลุ่ม), <b>orders</b>, <b>order_items</b> และ <b>dictionary</b></div>
@@ -1002,7 +1040,7 @@ footer{ border-top:1px solid var(--glass-line); }
       <div id="segNote" style="font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.6;"></div>
     </div>
     <div id="dlBox" style="background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;">
-      <div style="font-size:13.5px;font-weight:700;margin-bottom:4px;">⬇ ดาวน์โหลดข้อมูลที่นำเข้ามา (Import)</div>
+      <div style="font-size:13.5px;font-weight:700;margin-bottom:4px;">⬇ ดาวน์โหลดข้อมูลที่นำเข้ามา (Import) <span style="font-weight:600;color:var(--text-muted);font-size:12px;">— ค้นหา / ลบไฟล์ได้ที่นี่</span></div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.65;">
         ระบบเก็บ <b>แถวข้อมูลที่อ่านได้</b> ไม่ได้เก็บไฟล์ต้นฉบับไว้ ไฟล์ที่ได้จึงเป็นการสร้างใหม่จากข้อมูลเดิม — เนื้อข้อมูลตรงกันทุกแถว แต่หน้าตาไฟล์อาจไม่เหมือนต้นฉบับ 100%<br>
         • <b>Excel</b> = เปิดดู/ส่งต่อได้เลย มีชีต Leads / Leads-Products / Leads-Contacts / Contacts / Accounts &nbsp; • <b>JSON</b> = ไฟล์สำรอง ลากกลับเข้าหน้าเว็บนี้เพื่อ import ใหม่ได้ครบทุกชนิดไฟล์
@@ -1011,8 +1049,8 @@ footer{ border-top:1px solid var(--glass-line); }
         <button class="btn primary" id="btnDlAllXlsx">ดาวน์โหลดรวมทั้งหมด (Excel)</button>
         <button class="btn" id="btnDlAllJson">ดาวน์โหลดไฟล์สำรอง (JSON)</button>
       </div>
-      <div class="heat-scroll" id="dlFileList" style="font-size:12.5px;max-height:320px;overflow:auto;"></div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.6;">ปุ่ม Excel จะกดไม่ได้กับไฟล์สถิติ/รายงานแชท เพราะโครงสร้างไม่ใช่ตารางออเดอร์ — ใช้ JSON แทนได้</div>
+      <div id="dlFileList" style="font-size:12.5px;"></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.6;">ปุ่ม Excel จะกดไม่ได้กับไฟล์สถิติ/รายงานแชท เพราะโครงสร้างไม่ใช่ตารางออเดอร์ — ใช้ JSON แทนได้ • ปุ่ม <b>✕ ลบ</b> จะเอาไฟล์นั้นออกจากแดชบอร์ดแล้วคำนวณยอดใหม่ทันที (ถามยืนยันก่อนเสมอ)</div>
     </div>
     <div id="targetBox" style="background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;">
       <input type="file" id="chatFileInput" accept=".xls,.xlsx,.json" multiple="" style="display:none;">
@@ -1021,7 +1059,7 @@ footer{ border-top:1px solid var(--glass-line); }
     </div>
     <div id="metaBox" style="background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;">
       <div style="font-size:13.5px;font-weight:700;margin-bottom:2px;">📄 ที่มาของข้อมูล &amp; วิธีคำนวณ</div>
-      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">รายชื่อไฟล์ที่นำเข้ามาทั้งหมด และกติกาการนับที่ใช้ทั่วทั้งแดชบอร์ด</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">กติกาการนับที่ใช้ทั่วทั้งแดชบอร์ด (รายชื่อไฟล์ย้ายไปอยู่ในกล่อง Import ด้านบนแล้ว)</div>
       <footer id="dashFooter" style="margin-top:0;border-top:none;padding-top:0;"></footer>
     </div>
     <div id="backendSlot"></div>
@@ -1336,7 +1374,8 @@ function resetAll(){
   uploadScreen.style.display = 'block';
   dashboard.style.display = 'none';
   topActions.style.display = 'none';
-  document.getElementById('fileStrip').innerHTML = '';
+  impSel.clear(); impQuery = ''; impCollapsed.clear();
+  renderImportedFilesCard();
   document.getElementById('dataQualityBanner').classList.remove('show');
   clearError();
   if(window.__openBackend) window.__openBackend();
@@ -2833,24 +2872,155 @@ function dlAllJson(){
   if(!uploadedFiles.length){ alert('ยังไม่มีไฟล์ที่นำเข้า'); return; }
   dlBlob(JSON.stringify(uploadedFiles), 'hylme_imported_backup_' + ymd(new Date()) + '.json', 'application/json;charset=utf-8');
 }
+/* ==================== ตาราง "ไฟล์ที่นำเข้ามา" (Import) ====================
+   เดิมมี 2 ที่ที่ลิสต์ไฟล์: แถบชิปด้านบน (file-strip) + รายชื่อยาว ๆ ใน footer
+   พอไฟล์เยอะขึ้นเรื่อย ๆ ทั้ง 2 ที่ยาวจนเกะกะ → ยุบมารวมไว้ที่กล่องนี้ที่เดียว
+   ที่นี่ทำได้ครบ: ค้นหาชื่อไฟล์ / จัดกลุ่มตามประเภท / ดาวน์โหลด Excel-JSON /
+                  ติ๊กเลือกหลายไฟล์แล้วลบทีเดียว / ลบทีละไฟล์ (ถามยืนยันก่อนเสมอ)   */
+let impQuery = '';
+let impSel = new Set();        // เก็บ "ตัว object ของไฟล์" ไม่ใช่ index — ลบแล้ว index เลื่อนก็ยังชี้ถูกตัว
+let impCollapsed = new Set();  // ชื่อกลุ่มที่ถูกพับไว้
+
+function impEsc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function dlGroupLabel(f){
+  const k = dlKindLabel(f);
+  if(k === 'ออเดอร์ (Leads)' && /^Marketplace:/.test(String(f.name || ''))) return 'ออเดอร์ Marketplace (ไฟล์ MC)';
+  return k;
+}
+
+/* ลบไฟล์ออกจากแดชบอร์ด แล้วคำนวณยอดใหม่ทั้งหมด (ใช้ทั้งลบทีละไฟล์และลบหลายไฟล์) */
+function removeUploadedFiles(files){
+  const set = new Set(files || []);
+  if(!set.size) return;
+  uploadedFiles = uploadedFiles.filter(f => !set.has(f));
+  impSel.clear();
+  if(uploadedFiles.length === 0){ resetAll(); return; }
+  saveToLocal();
+  if(!recomputeDataset()){ state.team = 'all'; state.person = ''; recomputeDataset(); }
+  renderImportedFilesCard();   // อัปเดตตารางก่อน เผื่อ renderAll() สะดุดจะได้ยังเห็นผลการลบ
+  renderAll();
+}
+
 function renderImportedFilesCard(){
   const host = document.getElementById('dlFileList');
   if(!host) return;
-  if(!uploadedFiles.length){ host.innerHTML = '<div style="font-size:12.5px;color:var(--text-muted);">ยังไม่มีไฟล์ที่นำเข้า</div>'; return; }
-  const totalLeads = uploadedFiles.reduce((n,f) => n + (f.leadsRows||[]).length, 0);
-  host.innerHTML = `<table class="heat-table" style="width:100%;">
-    <thead style="position:sticky;top:0;z-index:1;"><tr><th style="cursor:default;">ไฟล์</th><th style="cursor:default;">ประเภท</th><th style="cursor:default;">จำนวนแถว</th><th style="cursor:default;">ดาวน์โหลด</th></tr></thead>
-    <tbody>${uploadedFiles.map((f,i) => `<tr>
-      <td style="text-align:left;">${f.name}</td>
-      <td style="text-align:left;">${dlKindLabel(f)}</td>
-      <td>${fmtNum(dlRowCount(f))}</td>
-      <td><button class="rx-preset" data-dlx="${i}"${dlCanXlsx(f) ? '' : ' disabled style="opacity:.4;"'}>Excel</button>
-          <button class="rx-preset" data-dlj="${i}">JSON</button></td>
-    </tr>`).join('')}
-    <tr><td style="text-align:left;"><b>รวม ${uploadedFiles.length} ไฟล์</b></td><td></td><td><b>${fmtNum(totalLeads)}</b> ออเดอร์</td><td></td></tr>
-    </tbody></table>`;
+  if(!uploadedFiles.length){
+    impSel.clear(); impQuery = '';
+    host.innerHTML = '<div style="font-size:12.5px;color:var(--text-muted);">ยังไม่มีไฟล์ที่นำเข้า</div>';
+    return;
+  }
+
+  // จำตำแหน่งเคอร์เซอร์ในช่องค้นหาไว้ก่อน re-render (ไม่งั้นพิมพ์แล้วโฟกัสหลุด)
+  const wasFocused = document.activeElement && document.activeElement.id === 'impSearchBox';
+  let caret = null;
+  if(wasFocused){ try{ caret = document.activeElement.selectionStart; }catch(e){} }
+
+  const q = impQuery.trim().toLowerCase();
+  const shown = uploadedFiles.filter(f => !q || String(f.name || '').toLowerCase().indexOf(q) >= 0);
+
+  const groups = new Map();
+  shown.forEach(f => {
+    const g = dlGroupLabel(f);
+    if(!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(f);
+  });
+  const groupList = Array.from(groups.entries()).sort((a,b) => b[1].length - a[1].length);
+
+  const selCount   = uploadedFiles.filter(f => impSel.has(f)).length;
+  const totalLeads = uploadedFiles.reduce((n,f) => n + (f.leadsRows || []).length, 0);
+  const allShownSelected = shown.length > 0 && shown.every(f => impSel.has(f));
+
+  const rowHtml = f => {
+    const i = uploadedFiles.indexOf(f);
+    return `<tr>
+      <td style="text-align:left;width:24px;padding-right:0;"><input type="checkbox" class="imp-cb" data-i="${i}"${impSel.has(f) ? ' checked' : ''} style="width:15px;height:15px;accent-color:var(--series-1);cursor:pointer;"></td>
+      <td class="l" style="word-break:break-all;">${impEsc(f.name)}</td>
+      <td style="white-space:nowrap;">${fmtNum(dlRowCount(f))}</td>
+      <td style="white-space:nowrap;">
+        <button class="rx-preset" data-dlx="${i}"${dlCanXlsx(f) ? '' : ' disabled style="opacity:.4;"'}>Excel</button>
+        <button class="rx-preset" data-dlj="${i}">JSON</button>
+        <button class="rx-preset imp-del" data-del="${i}" title="ลบไฟล์นี้ออกจากแดชบอร์ด">✕ ลบ</button>
+      </td>
+    </tr>`;
+  };
+
+  const groupsHtml = groupList.map(([g, arr]) => {
+    const collapsed = impCollapsed.has(g);
+    const rows = arr.reduce((n,f) => n + dlRowCount(f), 0);
+    return `<div style="margin-bottom:9px;">
+      <div class="imp-gh" data-g="${impEsc(g)}" style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 11px;border-radius:9px;background:var(--surface-1);border:1px solid var(--border);font-size:12px;font-weight:700;">
+        <span style="display:inline-block;font-size:10px;color:var(--text-muted);">${collapsed ? '▸' : '▾'}</span>
+        <span>${impEsc(g)}</span>
+        <span style="font-weight:600;color:var(--text-muted);margin-left:auto;">${fmtNum(arr.length)} ไฟล์ • ${fmtNum(rows)} แถว</span>
+      </div>
+      ${collapsed ? '' : `<table class="heat-table imp-table" style="width:100%;">
+        <thead><tr><th class="l" style="cursor:default;width:24px;"></th><th class="l" style="cursor:default;">ไฟล์</th><th style="cursor:default;">จำนวนแถว</th><th style="cursor:default;">ดาวน์โหลด / ลบ</th></tr></thead>
+        <tbody>${arr.map(rowHtml).join('')}</tbody></table>`}
+    </div>`;
+  }).join('');
+
+  host.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:11px;">
+      <input type="text" id="impSearchBox" placeholder="ค้นหาชื่อไฟล์ เช่น Marketplace, orders_15, pages_" value="${impEsc(impQuery)}"
+        style="flex:1;min-width:210px;max-width:330px;padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-1);color:var(--text-primary);font-family:var(--font);font-size:12.5px;">
+      <button class="rx-preset" id="impSelAll">${allShownSelected ? 'ยกเลิกที่เลือก' : 'เลือกทั้งหมดที่เห็น'}</button>
+      <button class="rx-preset" id="impDelSel"${selCount ? ' style="border-color:var(--critical);color:var(--critical);"' : ' disabled style="opacity:.4;"'}>✕ ลบที่เลือก (${fmtNum(selCount)})</button>
+      <span style="font-size:11.5px;color:var(--text-muted);margin-left:auto;">แสดง ${fmtNum(shown.length)} / ${fmtNum(uploadedFiles.length)} ไฟล์ • รวม ${fmtNum(totalLeads)} ออเดอร์</span>
+    </div>
+    <div class="heat-scroll" style="max-height:430px;overflow:auto;">
+      ${groupsHtml || '<div style="font-size:12.5px;color:var(--text-muted);padding:10px 2px;">ไม่พบไฟล์ที่ตรงกับคำค้น “' + impEsc(impQuery) + '”</div>'}
+    </div>`;
+
   host.querySelectorAll('button[data-dlx]').forEach(b => b.onclick = () => dlFileXlsx(uploadedFiles[+b.dataset.dlx]));
   host.querySelectorAll('button[data-dlj]').forEach(b => b.onclick = () => dlFileJson(uploadedFiles[+b.dataset.dlj]));
+
+  host.querySelectorAll('button[data-del]').forEach(b => b.onclick = () => {
+    const f = uploadedFiles[+b.dataset.del];
+    if(!f) return;
+    if(!confirm('ลบไฟล์นี้ออกจากแดชบอร์ด?\n\n' + f.name + '\n' + dlKindLabel(f) + ' • ' + fmtNum(dlRowCount(f)) + ' แถว\n\nยอดทุกการ์ดจะถูกคำนวณใหม่ทันที (อัปโหลดไฟล์เดิมกลับเข้ามาใหม่ได้ภายหลัง)')) return;
+    removeUploadedFiles([f]);
+  });
+
+  host.querySelectorAll('input.imp-cb').forEach(cb => cb.onchange = () => {
+    const f = uploadedFiles[+cb.dataset.i];
+    if(!f) return;
+    if(cb.checked) impSel.add(f); else impSel.delete(f);
+    renderImportedFilesCard();
+  });
+
+  host.querySelectorAll('.imp-gh').forEach(h => h.onclick = () => {
+    const g = h.dataset.g;
+    if(impCollapsed.has(g)) impCollapsed.delete(g); else impCollapsed.add(g);
+    renderImportedFilesCard();
+  });
+
+  const selAll = host.querySelector('#impSelAll');
+  if(selAll) selAll.onclick = () => {
+    if(allShownSelected) shown.forEach(f => impSel.delete(f));
+    else shown.forEach(f => impSel.add(f));
+    renderImportedFilesCard();
+  };
+
+  const delSel = host.querySelector('#impDelSel');
+  if(delSel) delSel.onclick = () => {
+    const files = uploadedFiles.filter(f => impSel.has(f));
+    if(!files.length) return;
+    const preview = files.slice(0,8).map(f => '• ' + f.name).join('\n') + (files.length > 8 ? '\n… และอีก ' + (files.length - 8) + ' ไฟล์' : '');
+    if(!confirm('ลบ ' + files.length + ' ไฟล์ออกจากแดชบอร์ด?\n\n' + preview + '\n\nยอดทุกการ์ดจะถูกคำนวณใหม่ทันที')) return;
+    removeUploadedFiles(files);
+  };
+
+  const box = host.querySelector('#impSearchBox');
+  if(box){
+    box.oninput = () => { impQuery = box.value; renderImportedFilesCard(); };
+    if(wasFocused){
+      box.focus();
+      if(caret != null){ try{ box.setSelectionRange(caret, caret); }catch(e){} }
+    }
+  }
 }
 
 
@@ -3294,31 +3464,10 @@ function handleCancelScanFiles(fileList){
   });
 }
 
+/* แถบชิปไฟล์ด้านบนถูกยกเลิกแล้ว (ไฟล์เยอะขึ้นเรื่อย ๆ จนยาวเกินไป)
+   — รายชื่อไฟล์ทั้งหมดย้ายไปอยู่ในตาราง "⬇ ดาวน์โหลดข้อมูลที่นำเข้ามา (Import)" ที่หลังบ้าน
+   คงชื่อฟังก์ชันเดิมไว้เพราะมีที่เรียกอยู่หลายจุด */
 function renderFileStrip(){
-  const strip = document.getElementById('fileStrip');
-  strip.innerHTML = '';
-  uploadedFiles.forEach((f, i) => {
-    const chip = document.createElement('div');
-    chip.className = 'file-chip';
-    chip.innerHTML = f.kind === 'chat'
-      ? `<b>${f.name}</b><span>(รายงานแชท ${(f.chatRows||[]).length} แถว)</span>`
-      : f.kind === 'convstat'
-      ? `<b>${f.name}</b><span>(สถิติ ${(f.convUserRows||[]).length} คน • ${((f.meta&&f.meta.dates)||[]).length} วัน)</span>`
-      : f.kind === 'pagestat'
-      ? `<b>${f.name}</b><span>(สถิติหน้า ${((f.pageStat&&f.pageStat.pages)||[]).length} เพจ • ${((f.pageStat&&f.pageStat.dateList)||[]).length} วัน)</span>`
-      : `<b>${f.name}</b><span>(${(f.leadsRows||[]).length} แถว)</span>`;
-    const dl = document.createElement('button');
-    dl.className = 'dl'; dl.textContent = '⤓';
-    dl.title = 'ดาวน์โหลดข้อมูลของไฟล์นี้' + (dlCanXlsx(f) ? ' (Excel)' : ' (JSON)');
-    dl.onclick = () => dlFileXlsx(f);
-    chip.appendChild(dl);
-    const rm = document.createElement('button');
-    rm.className = 'rm'; rm.textContent = '×';
-    rm.onclick = () => { uploadedFiles.splice(i,1); renderFileStrip(); if(uploadedFiles.length===0){ resetAll(); }
-      else { if(!recomputeDataset()){ state.team='all'; state.person=''; recomputeDataset(); } renderAll(); } };
-    chip.appendChild(rm);
-    strip.appendChild(chip);
-  });
   renderImportedFilesCard();
 }
 
@@ -5507,6 +5656,15 @@ function recomputeDataset(){
     teamSummary, allTotals,
     pageStatFiles: uploadedFiles.filter(f => f.kind === 'pagestat' && f.pageStat).map(f => f.pageStat),
   };
+
+  /* ดันตำแหน่งวัน/สัปดาห์/เดือนที่เลือกอยู่ให้กลับเข้าช่วงเสมอ
+     สำคัญตอน "ลบไฟล์" หรืออัปไฟล์เดิมทับ — จำนวนวันอาจน้อยลงกว่าตอนที่ผู้ใช้เลือกไว้
+     ถ้าไม่ดันกลับ currentPeriod() จะเป็น undefined แล้วการ์ดทั้งหน้าจะ render พัง */
+  const clampIdx = (v, arr) => { const n = (arr || []).length; return n ? Math.min(Math.max(v | 0, 0), n - 1) : 0; };
+  state.dayIndex   = clampIdx(state.dayIndex,   days);
+  state.weekIndex  = clampIdx(state.weekIndex,  weeks);
+  state.monthIndex = clampIdx(state.monthIndex, months);
+
   return true;
 }
 
@@ -5551,6 +5709,15 @@ function stepPeriod(delta){
   const list = periodList(); const ni = periodIndex() + delta;
   if(ni < 0 || ni >= list.length) return;
   setPeriodIndex(ni); renderAll();
+}
+/* สลับโหมด รายวัน/รายสัปดาห์/รายเดือน — ใช้ร่วมกันทั้งแท็บด้านบนและแถบซ้าย
+   (ต้องอัปเดตปุ่ม active ของแท็บด้านบนด้วย ไม่งั้นกดจากแถบซ้ายแล้วสองที่จะไม่ตรงกัน) */
+let sidePickOpen = false;     // เปิด/ปิดรายการเลือกช่วงในแถบซ้าย
+function setMode(m){
+  if(!m || state.mode === m) return;
+  state.mode = m;
+  document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  renderAll();
 }
 
 function deltaBlock(curr, prevIdx, list, key){
@@ -6215,7 +6382,7 @@ function renderMcCard(){
 function renderFooter(){
   const el = document.getElementById('dashFooter');
   el.innerHTML = `
-    <div>ไฟล์ที่ใช้: ${DATA.meta.fileNames.join(', ')} • ช่วงข้อมูล: ${DATA.meta.dateRange} • อัปเดตล่าสุด: ${DATA.meta.generatedAt}</div>
+    <div>นำเข้าแล้ว <b>${fmtNum((DATA.meta.fileNames||[]).length)}</b> ไฟล์ • ช่วงข้อมูล: ${DATA.meta.dateRange} • อัปเดตล่าสุด: ${DATA.meta.generatedAt} <span style="color:var(--text-muted);">— ดูรายชื่อไฟล์ทั้งหมด (และลบได้) ที่กล่อง “⬇ ดาวน์โหลดข้อมูลที่นำเข้ามา (Import)” ด้านบน</span></div>
     <div style="margin-top:4px;">ไม่รวมออเดอร์ที่ถูกลบ (Deleted) จำนวน ${DATA.meta.excludedCount} รายการ • นับรวมออเดอร์แจกฟรี/มูลค่า 0 บาท (เช่น สิทธิพิเศษวันเกิด แคมเปญแจกฟรี) เป็นออเดอร์ด้วย • ยอดขายคำนวณจาก Lead Value (รวมค่าจัดส่ง) แล้วบวก VAT 7% เพิ่มเข้าไป • "หน่วยที่ขาย" นับเฉพาะรายการสินค้า ไม่รวมค่าจัดส่ง • <b>รอบวันนับแบบเที่ยงคืนถึงเที่ยงคืน</b> ตามปฏิทิน (ออเดอร์ที่ปิดเลยเที่ยงคืนไปเล็กน้อยจะนับเป็นยอดของวันถัดไปตามเวลาที่บันทึกจริง) • สัปดาห์เริ่มวันอาทิตย์ และ<b>ตัดตามรอบเดือน</b> (สัปดาห์ที่คร่อม 2 เดือนจะถูกแยกเป็น 2 ช่วง เช่น 28–30 มิ.ย. และ 1–4 ก.ค.) • เดือนนับตามปฏิทิน (วันที่ 1 ถึงวันสุดท้ายของเดือน) • ตัวเลขเงินทุกจุดในหน้านี้เป็นยอดหลังบวก VAT 7% แล้ว</div>
     <div style="margin-top:4px;">Export Contact Template: 1 แถว = 1 ลูกค้า (รวมออเดอร์ที่เบอร์โทรเดียวกัน) • order_count / succeed_order_count / purchased_amount คำนวณจากออเดอร์ในช่วงที่เลือกเท่านั้น • ลูกค้าที่ไม่มีเบอร์โทรใช้ได้จะยัง export ให้ พร้อมหมายเหตุในคอลัมน์ note • คอลัมน์ owner ใส่ Thanyanat Noipuk ทุกแถว ส่วน created_by ใช้ชื่อผู้ดูแลจริงเป็นภาษาอังกฤษ • source ตัดคำว่า Facebook นำหน้าออก</div>
     <div style="margin-top:4px;">Conversion Rate = ปิดการขาย (แอดมิน จากไฟล์ leads) ÷ ลูกค้าใหม่ (จากไฟล์ "สถิติหน้า" ของ Pancake) — ไม่ใช้คอลัมน์ % ของ Pancake เพราะเป็น % รายวันที่บวกกันไม่ได้ • เรียงตามลำดับเพจ: Hylme → ครบจบเรื่องไขมัน → ครบจบเรื่องนอน → ครบจบเรื่องผิว</div>
@@ -6535,13 +6702,51 @@ function renderTeamBar(){
   if((LIFE.other || {}).orders) cards += sideCard('other', 'อื่น ๆ', 'Marketplace/ไม่ระบุ', 'var(--baseline)', S.other || {orders:0,sales:0}, LIFE.other);
 
   if(side){
-    side.innerHTML = `<div class="side-cap">ยอดขายแยกทีม</div>
+    /* ---- ตัวเลือกช่วงเวลาในแถบซ้าย ----
+       แถบซ้ายเป็น sticky ค้างอยู่ตลอด จึงกดเปลี่ยนวันได้จากทุกจุดของหน้า
+       (เลื่อนลงไปดูกราฟล่าง ๆ แล้วสลับวันเทียบกันได้เลย ไม่ต้องเลื่อนกลับขึ้นบน)
+       ผูกกับ state ชุดเดียวกับแท็บด้านบน — เปลี่ยนที่ไหนก็ตรงกันทั้งสองที่           */
+    const pList = periodList();
+    const pIdx  = periodIndex();
+    const modeLabel = { day:'รายวัน', week:'สัปดาห์', month:'เดือน' };
+    const pickHtml = sidePickOpen ? `<div class="side-picklist">${pList.map((p,i) => `
+        <button data-pidx="${i}"${i === pIdx ? ' class="active"' : ''}>
+          <span class="pl-l">${state.mode === 'day' ? p.label : p.label + ' (' + p.range + ')'}</span>
+          <span class="pl-v">${fmtBaht(p.sales || 0)}</span>
+        </button>`).join('')}</div>` : '';
+
+    side.innerHTML = `<div class="side-cap">ช่วงเวลาที่ดูอยู่</div>
+      <div class="seg side-mode" id="sideModeSeg">
+        ${['day','week','month'].map(m => `<button data-smode="${m}"${state.mode === m ? ' class="active"' : ''}>${modeLabel[m]}</button>`).join('')}
+      </div>
+      <div class="side-nav">
+        <button class="side-step" id="sidePrev" title="ช่วงก่อนหน้า"${pIdx <= 0 ? ' disabled' : ''}>‹</button>
+        <button class="side-pick${sidePickOpen ? ' open' : ''}" id="sidePick" title="กดเพื่อเลือกจากรายการทั้งหมด"><b>${periodLabelFull()}</b><span class="cv">${sidePickOpen ? '▴' : '▾'}</span></button>
+        <button class="side-step" id="sideNext" title="ช่วงถัดไป"${pIdx >= pList.length - 1 ? ' disabled' : ''}>›</button>
+      </div>
+      ${pickHtml}
+      <div class="side-cap" style="margin-top:8px;">ยอดขายแยกทีม</div>
       <div class="seg side-seg" id="teamScopeSeg">
         <button data-tscope="period"${scoped ? ' class="active"' : ''}>ช่วงที่เลือก</button>
         <button data-tscope="all"${scoped ? '' : ' class="active"'}>ทั้งหมด</button>
       </div>
-      <div class="side-period">${scoped ? periodLabelFull() : (DATA.meta.dateRange || 'ทั้งหมด')}${scoped && !T.orders ? ' — ไม่มีออเดอร์' : ''}</div>
+      <div class="side-period">${scoped ? (T.orders ? 'ตัวเลขของ ' + periodLabelFull() : 'ช่วงนี้ยังไม่มีออเดอร์') : 'ทั้งข้อมูล: ' + (DATA.meta.dateRange || 'ทั้งหมด')}</div>
       <div class="side-team-list">${cards}</div>`;
+
+    side.querySelectorAll('button[data-smode]').forEach(b => b.onclick = () => setMode(b.dataset.smode));
+    const sPrev = side.querySelector('#sidePrev'), sNext = side.querySelector('#sideNext');
+    if(sPrev) sPrev.onclick = () => stepPeriod(-1);
+    if(sNext) sNext.onclick = () => stepPeriod(1);
+    const sPick = side.querySelector('#sidePick');
+    if(sPick) sPick.onclick = () => { sidePickOpen = !sidePickOpen; renderTeamBar(); };
+    side.querySelectorAll('button[data-pidx]').forEach(b => b.onclick = () => {
+      setPeriodIndex(+b.dataset.pidx); sidePickOpen = false; renderAll();
+    });
+    // เลื่อนรายการให้ช่วงที่เลือกอยู่มาอยู่กลาง (สำคัญตอนมีวันเยอะ ๆ)
+    const pl = side.querySelector('.side-picklist');
+    const act = pl && pl.querySelector('button.active');
+    if(pl && act) pl.scrollTop = Math.max(0, act.offsetTop - pl.clientHeight / 2 + act.offsetHeight / 2);
+
     side.querySelectorAll('button[data-tscope]').forEach(b => b.onclick = () => {
       state.teamScope = b.dataset.tscope; renderTeamBar();
     });
@@ -6785,8 +6990,7 @@ function renderAll(){
 
 document.getElementById('modeSeg').addEventListener('click', e => {
   const btn = e.target.closest('button[data-mode]'); if(!btn) return;
-  document.querySelectorAll('#modeSeg button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active'); state.mode = btn.dataset.mode; renderAll();
+  setMode(btn.dataset.mode);
 });
 document.querySelectorAll('.table-toggle[data-target]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -7817,10 +8021,14 @@ chatFileInput.addEventListener('change', e => { if(e.target.files.length) handle
 (function setupBackendPanel(){
   const slot = document.getElementById('backendSlot');
   // ย้าย element กลุ่ม "หลังบ้าน" ลงมาไว้ในแผงล่างสุด แต่ยังทำงานได้เหมือนเดิม
-  ['fileStrip','dataQualityBanner','uploadScreen','monthlyPage','mcCard','posCard'].forEach(id => {
+  ['dataQualityBanner','uploadScreen','monthlyPage','posCard'].forEach(id => {
     const node = document.getElementById(id);
     if(node) slot.appendChild(node);
   });
+  // การ์ด "ออเดอร์ที่ถูกยกเลิก" ย้ายลงหลังบ้าน ไปอยู่ใต้ปุ่ม "🚫 ตรวจออเดอร์ยกเลิก" พอดี
+  const cancelSlot = document.getElementById('cancelSlot');
+  const cancelNode = document.getElementById('cancelCard');
+  if(cancelSlot && cancelNode) cancelSlot.appendChild(cancelNode);
   const toggle = document.getElementById('backendToggle');
   const body = document.getElementById('backendBody');
   function setOpen(open){ body.classList.toggle('collapsed', !open); toggle.classList.toggle('open', open); }
