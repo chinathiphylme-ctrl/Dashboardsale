@@ -87,6 +87,68 @@
   .chip.active{ background:var(--series-1); color:#fff; border-color:var(--series-1); }
   .chip .n{ opacity:.75; font-weight:500; margin-left:4px; }
 
+  /* ---------- ตัวเลือกช่วงวันที่เอง: กดวันเริ่ม -> กดวันจบ (dr = date range) ---------- */
+  .dr-bar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .dr-trigger{ display:inline-flex; align-items:center; gap:9px; border:1px solid var(--border); background:var(--surface-2);
+    padding:8px 15px; border-radius:999px; font-size:13px; font-weight:700; color:var(--text-primary);
+    font-family:var(--font); cursor:pointer; box-shadow:var(--shadow-card); white-space:nowrap; }
+  .dr-trigger .sub{ font-weight:500; font-size:11.5px; color:var(--text-muted); }
+  .dr-trigger .cv{ font-size:9px; color:var(--text-muted); }
+  .dr-trigger:hover, .dr-trigger.open{ border-color:var(--series-1); }
+  .dr-quick{ display:flex; gap:6px; flex-wrap:wrap; }
+  .dr-quick button{ cursor:pointer; font-family:var(--font); font-size:11.5px; font-weight:600; padding:7px 12px; border-radius:999px;
+    border:1px solid var(--border); background:var(--surface-2); color:var(--text-secondary); white-space:nowrap; }
+  .dr-quick button:hover{ border-color:var(--series-1); color:var(--text-primary); }
+  .dr-quick button.active{ background:var(--series-1); border-color:var(--series-1); color:#fff; }
+
+  .dr-back{ position:fixed; inset:0; z-index:199; display:none; }
+  .dr-back.show{ display:block; }
+  .dr-pop{ position:fixed; z-index:200; display:none; background:var(--surface-2); border:1px solid var(--border);
+    border-radius:20px; box-shadow:0 26px 70px -20px rgba(0,0,0,.5); padding:16px; width:min(620px, calc(100vw - 20px));
+    max-height:calc(100vh - 24px); overflow:auto; }
+  .dr-pop.show{ display:block; }
+  .dr-pop-top{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+  .dr-inputs{ display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; }
+  .dr-inputs label{ display:flex; flex-direction:column; gap:4px; font-size:10.5px; font-weight:700; color:var(--text-secondary); }
+  .dr-inputs input{ padding:7px 10px; border:1px solid var(--border); border-radius:10px; background:var(--surface-1);
+    color:var(--text-primary); font-family:var(--font); font-size:12.5px; }
+  .dr-hint{ font-size:11.5px; color:var(--text-muted); font-weight:600; }
+  .dr-presets{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .dr-presets button{ cursor:pointer; font-family:var(--font); font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:999px;
+    border:1px solid var(--border); background:var(--surface-1); color:var(--text-secondary); white-space:nowrap; }
+  .dr-presets button:hover{ border-color:var(--series-1); color:var(--text-primary); }
+  .dr-cals{ display:flex; gap:18px; }
+  .dr-cal{ flex:1 1 0; min-width:0; }
+  .dr-cal-title{ display:flex; align-items:center; justify-content:space-between; gap:6px; font-size:12.5px; font-weight:700; margin-bottom:8px; }
+  .dr-cal-title span{ flex:1 1 auto; text-align:center; }
+  .dr-mv{ width:26px; height:26px; flex:0 0 26px; border-radius:8px; border:1px solid var(--border); background:var(--surface-1);
+    color:var(--text-secondary); font-family:var(--font); cursor:pointer; font-size:12px; line-height:1; }
+  .dr-mv:disabled{ opacity:.25; cursor:default; }
+  .dr-mv.ghost{ visibility:hidden; }
+  .dr-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:2px 0; }
+  .dr-dow{ font-size:10px; color:var(--text-muted); text-align:center; font-weight:700; padding-bottom:5px; }
+  .dr-day{ position:relative; height:34px; border:none; background:transparent; border-radius:9px; font-size:12px;
+    font-weight:600; color:var(--text-primary); font-family:var(--font); cursor:pointer; padding:0;
+    font-variant-numeric:tabular-nums; }
+  .dr-day.blank{ visibility:hidden; pointer-events:none; }
+  .dr-day.off{ color:var(--text-muted); opacity:.3; cursor:not-allowed; }
+  .dr-day:not(.off):not(.blank):hover{ background:rgba(42,120,214,.22); }
+  .dr-day.inr{ background:rgba(42,120,214,.15); border-radius:0; }
+  .dr-day.edge{ background:var(--series-1); color:#fff; }
+  .dr-day.edge.s{ border-radius:9px 0 0 9px; }
+  .dr-day.edge.e{ border-radius:0 9px 9px 0; }
+  .dr-day.edge.s.e{ border-radius:9px; }
+  .dr-day .dot{ position:absolute; left:50%; bottom:4px; transform:translateX(-50%); width:4px; height:4px;
+    border-radius:50%; background:var(--series-2); }
+  .dr-day.edge .dot{ background:#fff; }
+  .dr-day.today::after{ content:''; position:absolute; inset:0; border-radius:9px; box-shadow:inset 0 0 0 1.5px var(--baseline); pointer-events:none; }
+  .dr-foot{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:12px; padding-top:12px;
+    border-top:1px solid var(--border); flex-wrap:wrap; }
+  .dr-foot .info{ font-size:12px; color:var(--text-secondary); line-height:1.6; }
+  .dr-foot .info b{ color:var(--text-primary); }
+  .dr-foot .acts{ display:flex; gap:8px; }
+  @media (max-width:640px){ .dr-cals{ flex-direction:column; gap:14px; } }
+
   /* ---------- KPI row ---------- */
   .kpi-row{ display:grid; grid-template-columns:1.3fr 1fr 1fr 1fr; gap:14px; margin-bottom:16px; }
   .kpi-hero{ background:var(--hero-bg); color:var(--hero-ink); border-radius:var(--radius-card); padding:22px 24px; display:flex; flex-direction:column; justify-content:space-between; min-height:150px; box-shadow:var(--shadow-hero); }
@@ -569,6 +631,19 @@ body::after{
 .person-chip.active{ background:var(--accent-bg); border-color:transparent; color:var(--accent-on); }
 .rx-preset{ background:var(--glass-2); border:1px solid var(--glass-border); }
 .rx-preset:hover{ border-color:var(--accent-bg); }
+.dr-trigger{ background:var(--glass-2); border:1px solid var(--glass-border); box-shadow:none; }
+.dr-trigger:hover, .dr-trigger.open{ border-color:var(--accent-bg); }
+.dr-quick button, .dr-presets button{ background:var(--glass-2); border:1px solid var(--glass-border); }
+.dr-quick button:hover, .dr-presets button:hover{ border-color:var(--accent-bg); }
+.dr-quick button.active{ background:var(--accent-bg); border-color:transparent; color:var(--accent-on); }
+/* ปฏิทินต้องทึบจริง — ธีมกระจกทำให้ --surface-2 โปร่งแสง ตัวเลขวันจะอ่านไม่ออกถ้าไม่ทับพื้น */
+.dr-pop{ background:rgba(255,255,255,0.97); border:1px solid var(--glass-border);
+  -webkit-backdrop-filter:blur(22px) saturate(160%); backdrop-filter:blur(22px) saturate(160%); }
+:root[data-theme="dark"] .dr-pop{ background:rgba(24,26,30,0.97); }
+.dr-inputs input, .dr-mv{ background:var(--glass-2); border:1px solid var(--glass-border); color:var(--text-primary); }
+.dr-foot{ border-top:1px solid var(--glass-line); }
+.dr-day.edge{ background:var(--accent-bg); color:var(--accent-on); }
+.dr-day.edge .dot{ background:var(--accent-on); }
 .step-btn{ background:var(--glass-2); border:1px solid var(--glass-border); }
 .table-toggle{ background:var(--glass-soft); border:1px solid var(--glass-border); }
 .file-chip, .mo-files .chip-f{ background:var(--glass-2); border:1px solid var(--glass-border); }
@@ -768,11 +843,22 @@ footer{ border-top:1px solid var(--glass-line); }
         <button data-mode="day" class="active">รายวัน</button>
         <button data-mode="week">รายสัปดาห์</button>
         <button data-mode="month">รายเดือน</button>
+        <button data-mode="custom">เลือกช่วงเอง</button>
       </div>
       <div class="period-picker">
         <button class="step-btn" id="periodPrev" title="ช่วงก่อนหน้า">‹</button>
         <div class="chips period-scroll" id="periodChips"></div>
         <button class="step-btn" id="periodNext" title="ช่วงถัดไป">›</button>
+      </div>
+      <!-- โหมด "เลือกช่วงเอง": กดปุ่มแล้วเลือกวันเริ่ม–วันจบจากปฏิทินได้เลย -->
+      <div class="dr-bar" id="drBar" style="display:none;">
+        <button class="step-btn" id="drPrev" title="เลื่อนช่วงถอยหลังเท่ากับความยาวช่วงที่เลือก">‹</button>
+        <button class="dr-trigger" id="drTrigger" title="กดเพื่อเลือกวันเริ่ม–วันจบจากปฏิทิน">
+          <span>📅</span><span id="drTriggerLabel">เลือกช่วงวันที่</span>
+          <span class="sub" id="drTriggerSub"></span><span class="cv">▾</span>
+        </button>
+        <button class="step-btn" id="drNext" title="เลื่อนช่วงไปข้างหน้าเท่ากับความยาวช่วงที่เลือก">›</button>
+        <div class="dr-quick" id="drQuick"></div>
       </div>
     </div>
 
@@ -1070,6 +1156,35 @@ footer{ border-top:1px solid var(--glass-line); }
 
 <div class="tooltip" id="tooltip"></div>
 
+<!-- ==================== ปฏิทินเลือกช่วงวันที่ (กดวันเริ่ม -> กดวันจบ) ==================== -->
+<div class="dr-back" id="drBack"></div>
+<div class="dr-pop" id="drPop" role="dialog" aria-label="เลือกช่วงวันที่">
+  <div class="dr-pop-top">
+    <div class="dr-inputs">
+      <label>ตั้งแต่วันที่<input type="date" id="drFrom"></label>
+      <label>ถึงวันที่<input type="date" id="drTo"></label>
+    </div>
+    <div class="dr-hint" id="drHint">กดวันเริ่ม แล้วกดวันจบ</div>
+  </div>
+  <div class="dr-presets" id="drPresets">
+    <button data-dp="7">7 วันล่าสุด</button>
+    <button data-dp="14">14 วันล่าสุด</button>
+    <button data-dp="30">30 วันล่าสุด</button>
+    <button data-dp="90">90 วันล่าสุด</button>
+    <button data-dp="thismonth">เดือนล่าสุด</button>
+    <button data-dp="lastmonth">เดือนก่อนหน้า</button>
+    <button data-dp="all">ทั้งหมด</button>
+  </div>
+  <div class="dr-cals" id="drCals"></div>
+  <div class="dr-foot">
+    <div class="info" id="drFootInfo"></div>
+    <div class="acts">
+      <button class="btn" id="drCancel" style="padding:7px 15px; font-size:12px;">ยกเลิก</button>
+      <button class="btn primary" id="drApply" style="padding:7px 17px; font-size:12px;">ใช้ช่วงนี้</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ==================== PERSISTENCE SLOTS ==================== */
 // Snapshot ของหน้าเว็บ "ก่อน" จะมีการ render อะไรลงไป — ใช้ตอนกดปุ่ม "สร้างไฟล์เว็บ (ฝังข้อมูล)"
@@ -1292,7 +1407,8 @@ let DATA = null;
 let productColorMap = {};
 let channelColorMap = {};
 let repColorMap = {};
-let state = { mode:'day', dayIndex:0, weekIndex:0, monthIndex:0, team:'all', person:'', teamScope:'period' };
+let state = { mode:'day', dayIndex:0, weekIndex:0, monthIndex:0, rgFrom:null, rgTo:null, team:'all', person:'', teamScope:'period' };
+let DATA_STAMP = 0;   // เพิ่มขึ้น 1 ทุกครั้งที่คำนวณชุดข้อมูลใหม่ — ใช้ล้างแคชของช่วงที่เลือกเอง
 let productMetric = 'units';   // 'units' = นับชิ้น, 'orders' = นับออเดอร์
 let mcExcludedReps = new Set(); // ผู้ดูแลที่ "ไม่" เลือก export MC (ติ๊กออก) — ว่าง = เลือกทุกคน
 let mcApproval = {};            // override สถานะอนุมัติราย SKU (ว่าง = ใช้กฎเริ่มต้น)
@@ -2768,7 +2884,8 @@ function afterFilesLoaded(){
     uploadScreen.style.display = 'none';
     dashboard.style.display = 'block';
     topActions.style.display = 'flex';
-    state = { mode:'day', dayIndex: DATA.days.length-1, weekIndex: DATA.weeks.length-1, monthIndex: DATA.months.length-1, team:'all', person:'' };
+    state = { mode:'day', dayIndex: DATA.days.length-1, weekIndex: DATA.weeks.length-1, monthIndex: DATA.months.length-1,
+              rgFrom:null, rgTo:null, team:'all', person:'', teamScope:'period' };
     renderAll();
     saveToLocal();   // จำข้อมูลชุดนี้ไว้ในเบราว์เซอร์ ครั้งต่อไปไม่ต้องอัปโหลดใหม่
     const banner = document.getElementById('dataQualityBanner');
@@ -5640,7 +5757,27 @@ function recomputeDataset(){
     return { key:mk, ...buildPeriod(mLeads, mProducts, label, rangeLabel, {inProgress, note, dates:mDates}) };
   });
 
+  /* 8.5) ช่วงวันที่กำหนดเอง — เรียกตอนผู้ใช้กดเลือก "ตั้งแต่วันที่ ... ถึงวันที่ ..." เอง
+     ใช้ buildPeriod ตัวเดียวกับรายวัน/สัปดาห์/เดือน การ์ดทุกใบจึงคำนวณด้วยสูตรเดิมเป๊ะ
+     (จับสินค้าด้วย Lead ID เหมือนโหมดสัปดาห์/เดือน ไม่ใช่ __date เพื่อไม่ให้บรรทัดสินค้าตกหล่น) */
+  function buildRange(fromStr, toStr){
+    if(!fromStr || !toStr) return null;
+    if(fromStr > toStr){ const t = fromStr; fromStr = toStr; toStr = t; }
+    const rLeads = validLeads.filter(r => r.__date >= fromStr && r.__date <= toStr);
+    const rIds = new Set(rLeads.map(r => r['Lead ID']));
+    const rProducts = products.filter(p => rIds.has(p['Lead ID']));
+    const start = new Date(fromStr + 'T00:00:00'), end = new Date(toStr + 'T00:00:00');
+    const rDates = []; for(let d = new Date(start); ymd(d) <= toStr; d = addDays(d, 1)) rDates.push(ymd(d));
+    const nDays = rDates.length;
+    const rangeLabel = fromStr === toStr ? fmtDMY(start) : `${fmtDM(start)} – ${fmtDMY(end)}`;
+    const label = nDays === 1 ? `${THAI_DOW[start.getDay()]} ${fmtDM(start)}` : `ช่วงที่เลือก (${nDays} วัน)`;
+    return { key:`range:${fromStr}~${toStr}`, from:fromStr, to:toStr, nDays,
+      ...buildPeriod(rLeads, rProducts, label, rangeLabel, {dates:rDates}) };
+  }
+
   DATA = {
+    buildRange,
+    stamp: ++DATA_STAMP,
     meta: {
       generatedAt: new Date().toLocaleString('th-TH'),
       excludedCount: excluded.length,
@@ -5681,13 +5818,319 @@ function positionTip(evt){
 function hideTip(){ tooltipEl.style.opacity = 0; }
 
 function currentPeriod(){ return periodList()[periodIndex()]; }
-function periodList(){ return state.mode === 'day' ? DATA.days : state.mode === 'week' ? DATA.weeks : DATA.months; }
-function periodIndex(){ return state.mode === 'day' ? state.dayIndex : state.mode === 'week' ? state.weekIndex : state.monthIndex; }
-function setPeriodIndex(i){ if(state.mode==='day') state.dayIndex=i; else if(state.mode==='week') state.weekIndex=i; else state.monthIndex=i; }
+function periodList(){
+  if(state.mode === 'custom') return rangeList();
+  return state.mode === 'day' ? DATA.days : state.mode === 'week' ? DATA.weeks : DATA.months;
+}
+function periodIndex(){
+  if(state.mode === 'custom') return Math.max(0, rangeList().length - 1);
+  return state.mode === 'day' ? state.dayIndex : state.mode === 'week' ? state.weekIndex : state.monthIndex;
+}
+function setPeriodIndex(i){
+  if(state.mode === 'custom') return;                    // โหมดเลือกเองไม่มี index ให้ขยับ — ใช้ปฏิทินแทน
+  if(state.mode==='day') state.dayIndex=i; else if(state.mode==='week') state.weekIndex=i; else state.monthIndex=i;
+}
+
+/* ==================== โหมด "เลือกช่วงเอง" — กดเลือกวันเริ่ม–วันจบจากปฏิทิน ====================
+   หลักการ: ไม่แตะโค้ดเดิมของรายวัน/สัปดาห์/เดือนเลย แค่สร้าง "ช่วง" ขึ้นมาใหม่ 2 ก้อน
+     [0] = ช่วงก่อนหน้าที่ยาวเท่ากัน (ไว้ให้ KPI คำนวณ % เพิ่ม/ลด ได้เหมือนโหมดอื่น)
+     [1] = ช่วงที่ผู้ใช้เลือก  <-- ตัวที่การ์ดทุกใบใช้
+   ทั้งสองก้อนสร้างจาก DATA.buildRange() ซึ่งเรียก buildPeriod ตัวเดียวกับโหมดอื่น        */
+let rangeCache = null;          // { key, list }  กันไม่ให้ renderAll คำนวณซ้ำหลายรอบ
+let rangeDraft = { from:null, to:null, anchorMonth:null };   // ค่าที่กำลังเลือกอยู่ในปฏิทิน (ยังไม่กด "ใช้ช่วงนี้")
+
+// ขอบเขตวันที่ที่มีข้อมูลจริง (ใช้ตั้งค่าเริ่มต้นและกันไม่ให้เลือกเลยขอบ)
+function rangeBounds(){
+  const d = (DATA && DATA.days) || [];
+  if(d.length) return { lo:d[0].date, hi:d[d.length-1].date };
+  const src = (DATA && DATA.unfilteredLeads) || [];
+  let lo = null, hi = null;
+  src.forEach(r => { if(!r.__date) return; if(lo===null || r.__date<lo) lo=r.__date; if(hi===null || r.__date>hi) hi=r.__date; });
+  return { lo, hi };
+}
+// ค่าเริ่มต้นครั้งแรก = 30 วันล่าสุดที่มีข้อมูล
+function ensureRangeDefaults(){
+  const b = rangeBounds();
+  if(!b.hi) return b;
+  if(!state.rgFrom || !state.rgTo){
+    state.rgTo = b.hi;
+    state.rgFrom = ymd(addDays(new Date(b.hi+'T00:00:00'), -29));
+  }
+  if(state.rgFrom > state.rgTo){ const t = state.rgFrom; state.rgFrom = state.rgTo; state.rgTo = t; }
+  // อัปโหลดไฟล์ใหม่แล้วช่วงเดิมหลุดออกนอกข้อมูล -> ดึงกลับเข้าขอบ
+  if(state.rgFrom < b.lo) state.rgFrom = b.lo;
+  if(state.rgTo   > b.hi) state.rgTo   = b.hi;
+  if(state.rgFrom > b.hi || state.rgTo < b.lo){ state.rgFrom = b.lo; state.rgTo = b.hi; }
+  return b;
+}
+function rangeList(){
+  if(!DATA || !DATA.buildRange) return [];
+  ensureRangeDefaults();
+  if(!state.rgFrom || !state.rgTo) return [];
+  const key = `${DATA.stamp}|${state.rgFrom}~${state.rgTo}`;
+  if(rangeCache && rangeCache.key === key) return rangeCache.list;
+  const cur = DATA.buildRange(state.rgFrom, state.rgTo);
+  if(!cur){ rangeCache = { key, list:[] }; return rangeCache.list; }
+  // ช่วงก่อนหน้าที่ยาวเท่ากัน (ติดกันพอดี) — ใช้เทียบเท่านั้น ไม่แสดงเป็นช่วงที่เลือก
+  const pEnd = addDays(new Date(state.rgFrom+'T00:00:00'), -1);
+  const pStart = addDays(pEnd, -(cur.nDays - 1));
+  const b = rangeBounds();
+  // ถ้าช่วงก่อนหน้าอยู่นอกข้อมูลทั้งก้อน ไม่ต้องสร้าง — KPI จะขึ้นว่า "เป็นช่วงแรก" แทนที่จะโชว์ ▲ ใหม่ ลอย ๆ
+  const prev = (b.lo && ymd(pEnd) < b.lo) ? null : DATA.buildRange(ymd(pStart), ymd(pEnd));
+  if(prev){ prev.label = `ช่วงก่อนหน้า ${cur.nDays} วัน`; prev.range = `${fmtDM(pStart)} – ${fmtDMY(pEnd)}`; }
+  rangeCache = { key, list: prev ? [prev, cur] : [cur] };
+  return rangeCache.list;
+}
+function rangeLabelShort(){
+  ensureRangeDefaults();
+  if(!state.rgFrom || !state.rgTo) return 'เลือกช่วงวันที่';
+  const a = new Date(state.rgFrom+'T00:00:00'), b = new Date(state.rgTo+'T00:00:00');
+  return state.rgFrom === state.rgTo ? fmtDMY(a) : `${fmtDM(a)} – ${fmtDMY(b)}`;
+}
+function rangeDayCount(){
+  if(!state.rgFrom || !state.rgTo) return 0;
+  return Math.round((new Date(state.rgTo+'T00:00:00') - new Date(state.rgFrom+'T00:00:00')) / 86400000) + 1;
+}
+// ตั้งช่วงใหม่ + วาดหน้าใหม่ทั้งหมด
+function setRange(from, to){
+  if(!from || !to) return;
+  if(from > to){ const t = from; from = to; to = t; }
+  const b = rangeBounds();
+  if(b.lo && from < b.lo) from = b.lo;
+  if(b.hi && to   > b.hi) to   = b.hi;
+  state.rgFrom = from; state.rgTo = to;
+  if(state.mode !== 'custom'){ state.mode = 'custom'; syncModeButtons(); }
+  renderAll();
+}
+// ‹ › ในโหมดเลือกเอง = เลื่อนหน้าต่างทั้งก้อนไปข้างหน้า/ถอยหลังเท่ากับความยาวช่วง
+function shiftRange(dir){
+  const n = rangeDayCount(); if(!n) return;
+  const b = rangeBounds();
+  let from = addDays(new Date(state.rgFrom+'T00:00:00'), dir * n);
+  let to   = addDays(new Date(state.rgTo  +'T00:00:00'), dir * n);
+  if(dir < 0 && ymd(from) < b.lo){ from = new Date(b.lo+'T00:00:00'); to = addDays(from, n-1); }
+  if(dir > 0 && ymd(to)   > b.hi){ to   = new Date(b.hi+'T00:00:00'); from = addDays(to, -(n-1)); }
+  setRange(ymd(from) < b.lo ? b.lo : ymd(from), ymd(to) > b.hi ? b.hi : ymd(to));
+}
+function rangeCanShift(dir){
+  const b = rangeBounds(); if(!b.lo) return false;
+  return dir < 0 ? state.rgFrom > b.lo : state.rgTo < b.hi;
+}
+// ชุดปุ่มลัด (ใช้ทั้งบนแถบและในปฏิทิน)
+const RANGE_PRESETS = [
+  { id:'7',  name:'7 วันล่าสุด' }, { id:'14', name:'14 วัน' }, { id:'30', name:'30 วัน' },
+  { id:'90', name:'90 วัน' }, { id:'thismonth', name:'เดือนล่าสุด' }, { id:'all', name:'ทั้งหมด' },
+];
+function presetRange(id){
+  const b = rangeBounds(); if(!b.hi) return null;
+  const hi = new Date(b.hi + 'T00:00:00');
+  if(id === 'all')        return { from:b.lo, to:b.hi };
+  if(id === 'thismonth')  return { from: b.hi.slice(0,7) + '-01' < b.lo ? b.lo : b.hi.slice(0,7) + '-01', to:b.hi };
+  if(id === 'lastmonth'){
+    const first = new Date(b.hi.slice(0,7) + '-01T00:00:00');
+    const lmEnd = addDays(first, -1);
+    const lmStart = new Date(lmEnd.getFullYear(), lmEnd.getMonth(), 1);
+    return { from: ymd(lmStart) < b.lo ? b.lo : ymd(lmStart), to: ymd(lmEnd) < b.lo ? b.lo : ymd(lmEnd) };
+  }
+  const n = Number(id) || 7;
+  const from = ymd(addDays(hi, -(n-1)));
+  return { from: from < b.lo ? b.lo : from, to:b.hi };
+}
+function activePresetId(){
+  for(const p of RANGE_PRESETS){
+    const r = presetRange(p.id);
+    if(r && r.from === state.rgFrom && r.to === state.rgTo) return p.id;
+  }
+  return null;
+}
+
+/* ---------- แถบเลือกช่วง (อยู่แถวเดียวกับแท็บรายวัน/สัปดาห์/เดือน) ---------- */
+function renderRangeBar(){
+  const bar = document.getElementById('drBar');
+  const picker = document.querySelector('#dashboard .period-picker');
+  const on = state.mode === 'custom';
+  if(bar) bar.style.display = on ? 'flex' : 'none';
+  if(picker) picker.style.display = on ? 'none' : '';
+  if(!on || !bar || !DATA) return;
+  ensureRangeDefaults();
+  const p = currentPeriod();
+  const lab = document.getElementById('drTriggerLabel');
+  const sub = document.getElementById('drTriggerSub');
+  if(lab) lab.textContent = rangeLabelShort();
+  if(sub) sub.textContent = `${fmtNum(rangeDayCount())} วัน • ${p ? fmtNum(p.orders) : 0} ออเดอร์`;
+  const prevB = document.getElementById('drPrev'), nextB = document.getElementById('drNext');
+  if(prevB) prevB.disabled = !rangeCanShift(-1);
+  if(nextB) nextB.disabled = !rangeCanShift(1);
+  const quick = document.getElementById('drQuick');
+  if(quick){
+    const act = activePresetId();
+    quick.innerHTML = RANGE_PRESETS.map(x =>
+      `<button data-dp="${x.id}"${x.id === act ? ' class="active"' : ''}>${x.name}</button>`).join('');
+  }
+}
+
+/* ---------- ปฏิทิน 2 เดือน: กดวันแรก = วันเริ่ม, กดวันที่สอง = วันจบ ---------- */
+let drPopOpen = false;
+function monthShiftStr(ymStr, delta){
+  const [y, m] = String(ymStr || ym(new Date())).split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
+}
+function openRangePop(anchorEl){
+  if(!DATA) return;
+  ensureRangeDefaults();
+  // เปิดปฏิทินให้เห็น "ทั้งวันเริ่มและวันจบ" ถ้าเป็นไปได้: ปฏิทินขวา = เดือนของวันจบ
+  const fM = (state.rgFrom || '').slice(0,7), tM = (state.rgTo || '').slice(0,7);
+  rangeDraft = { from:state.rgFrom, to:state.rgTo, anchorMonth: (fM && fM === tM) ? fM : monthShiftStr(tM, -1) };
+  drPopOpen = true;
+  document.getElementById('drBack').classList.add('show');
+  const pop = document.getElementById('drPop');
+  pop.classList.add('show');
+  renderRangePop();
+  positionRangePop(anchorEl);
+  document.querySelectorAll('.dr-trigger, #sidePick').forEach(b => b.classList.add('open'));
+}
+function closeRangePop(){
+  drPopOpen = false;
+  document.getElementById('drBack').classList.remove('show');
+  document.getElementById('drPop').classList.remove('show');
+  document.querySelectorAll('.dr-trigger, #sidePick').forEach(b => b.classList.remove('open'));
+}
+function positionRangePop(anchorEl){
+  const pop = document.getElementById('drPop');
+  const r = anchorEl ? anchorEl.getBoundingClientRect() : { left:20, bottom:80, top:80 };
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  let left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+  let top = r.bottom + 8;
+  if(top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 8);
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+}
+// เดือนที่จะโชว์ = เดือนของ anchorMonth และเดือนถัดไป
+function drMonthShift(delta){
+  rangeDraft.anchorMonth = monthShiftStr(rangeDraft.anchorMonth, delta);
+  renderRangePop();
+}
+function renderRangePop(){
+  if(!DATA) return;
+  const b = rangeBounds();
+  const salesByDate = {};
+  (DATA.days || []).forEach(d => { salesByDate[d.date] = d; });
+  const dr = rangeDraft;
+  const lo = dr.from, hi = dr.to;                    // hi = null ระหว่างที่เพิ่งกดวันเริ่ม
+  const today = ymd(new Date());
+  const DOW = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+
+  const monthHtml = (ymStr, side) => {
+    const [y, m] = ymStr.split('-').map(Number);
+    const first = new Date(y, m-1, 1);
+    const nDays = new Date(y, m, 0).getDate();
+    const lead = first.getDay();
+    const canPrev = b.lo ? `${y}-${pad2(m)}-01` > b.lo : true;
+    const canNext = b.hi ? `${y}-${pad2(m)}-${pad2(nDays)}` < b.hi : true;
+    let cells = '';
+    for(let i=0; i<lead; i++) cells += '<button class="dr-day blank"></button>';
+    for(let d=1; d<=nDays; d++){
+      const ds = `${y}-${pad2(m)}-${pad2(d)}`;
+      const off = (b.lo && ds < b.lo) || (b.hi && ds > b.hi);
+      const isS = lo && ds === lo, isE = hi && ds === hi;
+      const inr = lo && hi && ds > lo && ds < hi;
+      const cls = ['dr-day'];
+      if(off) cls.push('off');
+      if(inr) cls.push('inr');
+      if(isS || isE){ cls.push('edge'); if(isS) cls.push('s'); if(isE) cls.push('e'); }
+      if(!lo || !hi){ if(isS) cls.push('e'); }        // เลือกวันเดียวอยู่ = มุมโค้งทั้งสองข้าง
+      if(ds === today) cls.push('today');
+      const rec = salesByDate[ds];
+      const tip = rec ? `${fmtBaht(rec.sales)} • ${fmtNum(rec.orders)} ออเดอร์` : 'ไม่มีออเดอร์';
+      cells += `<button class="${cls.join(' ')}" data-d="${ds}"${off ? ' disabled' : ''} title="${ds} — ${tip}">${d}${rec && rec.orders ? '<i class="dot"></i>' : ''}</button>`;
+    }
+    const navL = side === 'l'
+      ? `<button class="dr-mv" data-mv="-1"${canPrev ? '' : ' disabled'}>‹</button>`
+      : `<button class="dr-mv ghost">‹</button>`;
+    const navR = side === 'r'
+      ? `<button class="dr-mv" data-mv="1"${canNext ? '' : ' disabled'}>›</button>`
+      : `<button class="dr-mv ghost">›</button>`;
+    return `<div class="dr-cal">
+      <div class="dr-cal-title">${navL}<span>${first.toLocaleDateString('th-TH', {month:'long', year:'numeric'})}</span>${navR}</div>
+      <div class="dr-grid">${DOW.map(x => `<div class="dr-dow">${x}</div>`).join('')}${cells}</div>
+    </div>`;
+  };
+
+  const [ay, am] = dr.anchorMonth.split('-').map(Number);
+  const nextM = new Date(ay, am, 1);
+  document.getElementById('drCals').innerHTML =
+    monthHtml(dr.anchorMonth, 'l') + monthHtml(`${nextM.getFullYear()}-${pad2(nextM.getMonth()+1)}`, 'r');
+
+  const f = document.getElementById('drFrom'), t = document.getElementById('drTo');
+  if(f){ f.min = b.lo || ''; f.max = b.hi || ''; f.value = dr.from || ''; }
+  if(t){ t.min = b.lo || ''; t.max = b.hi || ''; t.value = dr.to || ''; }
+  document.getElementById('drHint').textContent = (dr.from && !dr.to) ? 'เลือกวันจบ…' : 'กดวันเริ่ม แล้วกดวันจบ';
+
+  const info = document.getElementById('drFootInfo');
+  if(dr.from && dr.to){
+    const n = Math.round((new Date(dr.to+'T00:00:00') - new Date(dr.from+'T00:00:00'))/86400000) + 1;
+    let orders = 0, sales = 0, withData = 0;
+    (DATA.days || []).forEach(d => { if(d.date >= dr.from && d.date <= dr.to){ orders += d.orders; sales += d.sales; withData++; } });
+    info.innerHTML = `<b>${fmtDMY(new Date(dr.from+'T00:00:00'))} – ${fmtDMY(new Date(dr.to+'T00:00:00'))}</b> • ${fmtNum(n)} วัน
+      <br><span style="font-size:11.5px;color:var(--text-muted);">${fmtNum(orders)} ออเดอร์ • ${fmtBaht(sales)} • มีการขาย ${fmtNum(withData)} วัน</span>`;
+  } else {
+    info.innerHTML = dr.from
+      ? `เลือกวันเริ่มแล้ว: <b>${fmtDMY(new Date(dr.from+'T00:00:00'))}</b> — กดวันจบอีกครั้ง`
+      : 'ยังไม่ได้เลือกช่วง';
+  }
+  const ap = document.getElementById('drApply');
+  if(ap){ const ok = !!(dr.from && dr.to); ap.disabled = !ok; ap.style.opacity = ok ? 1 : .5; }
+}
+function drPickDay(ds){
+  const dr = rangeDraft;
+  if(!dr.from || (dr.from && dr.to)){ dr.from = ds; dr.to = null; }     // เริ่มเลือกใหม่
+  else if(ds < dr.from){ dr.to = dr.from; dr.from = ds; }               // กดย้อนหลัง = สลับให้อัตโนมัติ
+  else dr.to = ds;
+  renderRangePop();
+}
+(function initRangePicker(){
+  const on = (id, ev, fn) => { const el = document.getElementById(id); if(el) el.addEventListener(ev, fn); };
+  on('drTrigger', 'click', e => { drPopOpen ? closeRangePop() : openRangePop(e.currentTarget); });
+  on('drPrev', 'click', () => shiftRange(-1));
+  on('drNext', 'click', () => shiftRange(1));
+  on('drQuick', 'click', e => {
+    const b = e.target.closest('button[data-dp]'); if(!b) return;
+    const r = presetRange(b.dataset.dp); if(r) setRange(r.from, r.to);
+  });
+  on('drBack', 'click', closeRangePop);
+  on('drCancel', 'click', closeRangePop);
+  on('drApply', 'click', () => {
+    if(rangeDraft.from && rangeDraft.to){ closeRangePop(); setRange(rangeDraft.from, rangeDraft.to); }
+  });
+  on('drPresets', 'click', e => {
+    const b = e.target.closest('button[data-dp]'); if(!b) return;
+    const r = presetRange(b.dataset.dp); if(!r) return;
+    rangeDraft.from = r.from; rangeDraft.to = r.to;
+    rangeDraft.anchorMonth = r.from.slice(0,7) === r.to.slice(0,7) ? r.to.slice(0,7) : monthShiftStr(r.to.slice(0,7), -1);
+    renderRangePop();
+  });
+  on('drCals', 'click', e => {
+    const mv = e.target.closest('button[data-mv]');
+    if(mv){ drMonthShift(Number(mv.dataset.mv)); return; }
+    const d = e.target.closest('button[data-d]');
+    if(d && !d.disabled) drPickDay(d.dataset.d);
+  });
+  on('drFrom', 'change', e => { if(e.target.value){ rangeDraft.from = e.target.value; if(rangeDraft.to && rangeDraft.to < rangeDraft.from){ rangeDraft.to = null; } rangeDraft.anchorMonth = e.target.value.slice(0,7); renderRangePop(); } });
+  on('drTo',   'change', e => { if(e.target.value){ rangeDraft.to = e.target.value; if(rangeDraft.from && rangeDraft.to < rangeDraft.from){ const t = rangeDraft.from; rangeDraft.from = rangeDraft.to; rangeDraft.to = t; } renderRangePop(); } });
+  document.addEventListener('keydown', e => { if(e.key === 'Escape' && drPopOpen) closeRangePop(); });
+  window.addEventListener('resize', () => { if(drPopOpen) closeRangePop(); });
+})();
+// ให้ปุ่มโหมดบนแท็บด้านบนตรงกับ state เสมอ (กดจากแถบซ้ายหรือปุ่มลัดก็ยังตรง)
+function syncModeButtons(){
+  document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('active', b.dataset.mode === state.mode));
+}
 
 function renderChips(){
   const wrap = document.getElementById('periodChips');
   wrap.innerHTML = '';
+  renderRangeBar();                       // สลับให้โชว์แถบเลือกช่วงเองแทนชิป เมื่ออยู่โหมด custom
+  if(state.mode === 'custom') return;
   const list = periodList();
   let activeBtn = null;
   list.forEach((p, i) => {
@@ -5706,6 +6149,7 @@ function renderChips(){
   if(nextB) nextB.disabled = periodIndex() >= list.length - 1;
 }
 function stepPeriod(delta){
+  if(state.mode === 'custom'){ shiftRange(delta < 0 ? -1 : 1); return; }   // เลื่อนทั้งหน้าต่างแทนการขยับ index
   const list = periodList(); const ni = periodIndex() + delta;
   if(ni < 0 || ni >= list.length) return;
   setPeriodIndex(ni); renderAll();
@@ -5716,7 +6160,8 @@ let sidePickOpen = false;     // เปิด/ปิดรายการเล�
 function setMode(m){
   if(!m || state.mode === m) return;
   state.mode = m;
-  document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  if(m === 'custom') ensureRangeDefaults();
+  syncModeButtons();
   renderAll();
 }
 
@@ -5754,9 +6199,35 @@ function renderKPI(){
 }
 
 function renderTrend(){
+  const el = document.getElementById('trendChart');
+  /* โหมดเลือกช่วงเอง: กราฟนี้ไม่มีประโยชน์ถ้าโชว์แค่ 1 แท่ง — โชว์ "รายวันในช่วงที่เลือก" แทน
+     กดแท่งไหน = กระโดดไปดูวันนั้นแบบเต็ม ๆ (สลับไปโหมดรายวันให้เลย)                     */
+  if(state.mode === 'custom'){
+    const days = (DATA.days || []).filter(d => d.date >= state.rgFrom && d.date <= state.rgTo);
+    document.getElementById('trendSub').textContent =
+      `ยอดขายรายวันในช่วงที่เลือก (${fmtNum(days.length)} วันที่มีการขาย จาก ${fmtNum(rangeDayCount())} วัน) — กดแท่งเพื่อดูวันนั้นแบบเต็ม`;
+    el.innerHTML = '';
+    if(!days.length){ el.innerHTML = '<div style="font-size:12.5px;color:var(--text-muted);padding:8px 2px;">ช่วงนี้ยังไม่มีออเดอร์</div>'; return; }
+    const dMax = Math.max(...days.map(d => d.sales), 1);
+    days.forEach(d => {
+      const col = document.createElement('div'); col.className = 'trend-bar-col';
+      const h = Math.max((d.sales / dMax) * 100, 3);
+      col.innerHTML = `<div class="trend-bar active" style="height:${h}%"><div class="trend-bar-value">${fmtBaht(d.sales)}</div></div><div class="trend-bar-label">${d.label.split(' ').slice(1).join(' ')}</div>`;
+      const bar = col.querySelector('.trend-bar');
+      bar.addEventListener('pointermove', e => showTip(`<div class="t-val">${fmtBahtFull(d.sales)}</div><div>${d.label} • ${fmtNum(d.orders)} ออเดอร์</div><div style="opacity:.7">กดเพื่อดูวันนี้แบบเต็ม</div>`, e));
+      bar.addEventListener('pointerleave', hideTip);
+      bar.addEventListener('click', () => {
+        const i = (DATA.days || []).findIndex(x => x.date === d.date);
+        if(i >= 0){ state.mode = 'day'; state.dayIndex = i; syncModeButtons(); hideTip(); renderAll(); }
+      });
+      el.appendChild(col);
+    });
+    el.scrollLeft = el.scrollWidth;
+    return;
+  }
   const list = periodList(); const idx = periodIndex();
   const max = Math.max(...list.map(p => p.sales), 1);
-  const el = document.getElementById('trendChart'); el.innerHTML = '';
+  el.innerHTML = '';
   document.getElementById('trendSub').textContent = state.mode === 'day' ? 'ยอดขายรายวัน' : state.mode === 'week' ? 'ยอดขายรายสัปดาห์' : 'ยอดขายรายเดือน';
   list.forEach((p, i) => {
     const col = document.createElement('div'); col.className = 'trend-bar-col';
@@ -6660,6 +7131,7 @@ function teamSummaryForDates(dates){
 
 function periodLabelFull(){
   try{
+    if(state.mode === 'custom') return rangeLabelShort();
     const p = currentPeriod();
     if(!p) return '-';
     return state.mode === 'day' ? p.label : `${p.label} (${p.range})`;
@@ -6706,24 +7178,37 @@ function renderTeamBar(){
        แถบซ้ายเป็น sticky ค้างอยู่ตลอด จึงกดเปลี่ยนวันได้จากทุกจุดของหน้า
        (เลื่อนลงไปดูกราฟล่าง ๆ แล้วสลับวันเทียบกันได้เลย ไม่ต้องเลื่อนกลับขึ้นบน)
        ผูกกับ state ชุดเดียวกับแท็บด้านบน — เปลี่ยนที่ไหนก็ตรงกันทั้งสองที่           */
+    const isCustom  = state.mode === 'custom';
     const pList = periodList();
     const pIdx  = periodIndex();
-    const modeLabel = { day:'รายวัน', week:'สัปดาห์', month:'เดือน' };
-    const pickHtml = sidePickOpen ? `<div class="side-picklist">${pList.map((p,i) => `
+    const modeLabel = { day:'รายวัน', week:'สัปดาห์', month:'เดือน', custom:'เลือกเอง' };
+    // โหมดเลือกเอง: รายการด้านล่างเป็น "ปุ่มลัดช่วง" แทนรายการวัน/สัปดาห์/เดือน
+    const pickHtml = !sidePickOpen ? '' : (isCustom
+      ? `<div class="side-picklist">${RANGE_PRESETS.map(x => {
+            const r = presetRange(x.id); if(!r) return '';
+            const on = r.from === state.rgFrom && r.to === state.rgTo;
+            const nd = Math.round((new Date(r.to+'T00:00:00') - new Date(r.from+'T00:00:00'))/86400000) + 1;
+            return `<button data-dpside="${x.id}"${on ? ' class="active"' : ''}>
+              <span class="pl-l">${x.name}</span><span class="pl-v">${fmtNum(nd)} วัน</span></button>`;
+          }).join('')}</div>`
+      : `<div class="side-picklist">${pList.map((p,i) => `
         <button data-pidx="${i}"${i === pIdx ? ' class="active"' : ''}>
           <span class="pl-l">${state.mode === 'day' ? p.label : p.label + ' (' + p.range + ')'}</span>
           <span class="pl-v">${fmtBaht(p.sales || 0)}</span>
-        </button>`).join('')}</div>` : '';
+        </button>`).join('')}</div>`);
 
+    const navPrevOff = isCustom ? !rangeCanShift(-1) : pIdx <= 0;
+    const navNextOff = isCustom ? !rangeCanShift(1)  : pIdx >= pList.length - 1;
     side.innerHTML = `<div class="side-cap">ช่วงเวลาที่ดูอยู่</div>
       <div class="seg side-mode" id="sideModeSeg">
-        ${['day','week','month'].map(m => `<button data-smode="${m}"${state.mode === m ? ' class="active"' : ''}>${modeLabel[m]}</button>`).join('')}
+        ${['day','week','month','custom'].map(m => `<button data-smode="${m}"${state.mode === m ? ' class="active"' : ''}>${modeLabel[m]}</button>`).join('')}
       </div>
       <div class="side-nav">
-        <button class="side-step" id="sidePrev" title="ช่วงก่อนหน้า"${pIdx <= 0 ? ' disabled' : ''}>‹</button>
-        <button class="side-pick${sidePickOpen ? ' open' : ''}" id="sidePick" title="กดเพื่อเลือกจากรายการทั้งหมด"><b>${periodLabelFull()}</b><span class="cv">${sidePickOpen ? '▴' : '▾'}</span></button>
-        <button class="side-step" id="sideNext" title="ช่วงถัดไป"${pIdx >= pList.length - 1 ? ' disabled' : ''}>›</button>
+        <button class="side-step" id="sidePrev" title="ช่วงก่อนหน้า"${navPrevOff ? ' disabled' : ''}>‹</button>
+        <button class="side-pick${sidePickOpen ? ' open' : ''}" id="sidePick" title="${isCustom ? 'กดเพื่อเลือกช่วงลัด' : 'กดเพื่อเลือกจากรายการทั้งหมด'}"><b>${periodLabelFull()}</b><span class="cv">${sidePickOpen ? '▴' : '▾'}</span></button>
+        <button class="side-step" id="sideNext" title="ช่วงถัดไป"${navNextOff ? ' disabled' : ''}>›</button>
       </div>
+      ${isCustom ? `<button class="btn" id="sideOpenCal" style="width:100%; justify-content:center; padding:8px 10px; font-size:12px; margin-top:-4px;">📅 เลือกวันที่จากปฏิทิน</button>` : ''}
       ${pickHtml}
       <div class="side-cap" style="margin-top:8px;">ยอดขายแยกทีม</div>
       <div class="seg side-seg" id="teamScopeSeg">
@@ -6742,6 +7227,12 @@ function renderTeamBar(){
     side.querySelectorAll('button[data-pidx]').forEach(b => b.onclick = () => {
       setPeriodIndex(+b.dataset.pidx); sidePickOpen = false; renderAll();
     });
+    side.querySelectorAll('button[data-dpside]').forEach(b => b.onclick = () => {
+      const r = presetRange(b.dataset.dpside); sidePickOpen = false;
+      if(r) setRange(r.from, r.to); else renderTeamBar();
+    });
+    const sCal = side.querySelector('#sideOpenCal');
+    if(sCal) sCal.onclick = () => { drPopOpen ? closeRangePop() : openRangePop(sCal); };
     // เลื่อนรายการให้ช่วงที่เลือกอยู่มาอยู่กลาง (สำคัญตอนมีวันเยอะ ๆ)
     const pl = side.querySelector('.side-picklist');
     const act = pl && pl.querySelector('button.active');
