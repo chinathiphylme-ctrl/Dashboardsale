@@ -1003,6 +1003,24 @@ footer{ border-top:1px solid var(--glass-line); }
       <div id="ctPreviewWrap" style="display:none; margin-top:14px;"></div>
     </div>
 
+    <div class="card" style="margin-bottom:14px;" id="topSpenderCard">
+      <div class="card-head">
+        <div><h3>Top Spender รายเดือน</h3>
+        <div class="card-sub">จัดอันดับลูกค้าที่ยอดซื้อสะสมสูงสุดในแต่ละเดือน (ใช้ตัวกรองทีม/ผู้ดูแลด้านบนด้วย) — ตัดรายที่ไม่มีเบอร์โทรที่ใช้ได้ หรือข้อมูลถูกปิดบัง (ชื่อมี * เช่น ช******ม) ออกแล้ว</div></div>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
+        <label style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-secondary);font-weight:600;">
+          เดือน:
+          <select id="tsMonthSelect" style="padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);font-family:var(--font);font-size:12.5px;"></select>
+        </label>
+      </div>
+      <div id="tsSummary" style="font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.9;"></div>
+      <div style="font-weight:700;font-size:13.5px;margin:0 0 10px;">Top 10 ของเดือนที่เลือก</div>
+      <div id="tsTop10Wrap" class="scroll-table" style="margin-bottom:20px;"></div>
+      <div style="font-weight:700;font-size:13.5px;margin:0 0 10px;">สรุปแชมป์ทุกเดือน</div>
+      <div id="tsChampWrap" class="scroll-table"></div>
+    </div>
+
     <div class="card" style="margin-bottom:14px;" id="posCard">
       <div class="card-head">
         <div><h3>Export รายการขาย (POS Transaction)</h3><div class="card-sub">สร้างไฟล์ Excel รูปแบบ Transaction POS ตาม template ที่ให้มา — รวมทุกออเดอร์ในช่วงที่เลือกอยู่ (ไม่กรองตามผู้ดูแล) 1 ออเดอร์ = 1 บิล, สินค้าแต่ละชิ้นเป็น 1 บรรทัด</div></div>
@@ -1410,6 +1428,7 @@ let repColorMap = {};
 let state = { mode:'day', dayIndex:0, weekIndex:0, monthIndex:0, rgFrom:null, rgTo:null, team:'all', person:'', teamScope:'period' };
 let DATA_STAMP = 0;   // เพิ่มขึ้น 1 ทุกครั้งที่คำนวณชุดข้อมูลใหม่ — ใช้ล้างแคชของช่วงที่เลือกเอง
 let productMetric = 'units';   // 'units' = นับชิ้น, 'orders' = นับออเดอร์
+let tsMonth = null;            // เดือนที่เลือกอยู่ในการ์ด Top Spender รายเดือน (YYYY-MM)
 let mcExcludedReps = new Set(); // ผู้ดูแลที่ "ไม่" เลือก export MC (ติ๊กออก) — ว่าง = เลือกทุกคน
 let mcApproval = {};            // override สถานะอนุมัติราย SKU (ว่าง = ใช้กฎเริ่มต้น)
 // ไฟล์ Pancake ที่ export มาโดยไม่มีคอลัมน์ "วันที่ยืนยันคำสั่งซื้อ" (ยอดจะตกวันที่สร้างบิลแทน)
@@ -4825,6 +4844,92 @@ function renderContactCard(){
   }
 }
 
+/* ==================== TOP SPENDER รายเดือน ====================
+   ใช้ buildContactRows() ตัวเดียวกับการ์ด Contact เพื่อรวมลูกค้าด้วยเบอร์โทร + คำนวณยอดซื้อสะสม
+   ต่อเดือน แล้วตัดรายที่ไม่มีเบอร์โทรที่ใช้ได้ หรือข้อมูลถูกปิดบัง (ชื่อมี *) ออกเสมอ (ตามที่ตกลงไว้)
+   เดินตามตัวกรองทีม/ผู้ดูแลด้านบนโดยอัตโนมัติ เพราะอ่านจาก DATA.allLeads / DATA.allProducts
+   ซึ่งถูกกรองตาม state.team / state.person ไว้แล้วตั้งแต่ recomputeDataset()                    */
+function topSpenderMonthKeys(){
+  const set = new Set();
+  (DATA.allLeads || []).forEach(r => { if(r.__date) set.add(String(r.__date).slice(0, 7)); });
+  return Array.from(set).sort(); // เก่า -> ใหม่
+}
+function topSpenderMonthLabel(mk){
+  const d = new Date(mk + '-01T00:00:00');
+  return d.toLocaleDateString('th-TH', {month:'long', year:'numeric'});
+}
+function topSpenderRowsForMonth(mk){
+  const leads = (DATA.allLeads || []).filter(r => String(r.__date || '').slice(0, 7) === mk);
+  const ids = new Set(leads.map(r => r['Lead ID']));
+  const products = (DATA.allProducts || []).filter(p => ids.has(p['Lead ID']));
+  const built = buildContactRows(leads, products, DATA.contactAccountByLead);
+  // ตัดรายที่ไม่มีเบอร์โทรที่ใช้ได้ หรือถูกปิดบังออก — ที่เหลือเรียงตามยอดซื้อสะสม (มาก -> น้อย) อยู่แล้ว
+  return built.rows.filter(r => !r._masked && r._hasPhone);
+}
+function topSpenderRankBadge(i){
+  return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1);
+}
+function renderTopSpenderCard(){
+  const card = document.getElementById('topSpenderCard');
+  if(!card || !DATA) return;
+  const months = topSpenderMonthKeys();
+  const sel = document.getElementById('tsMonthSelect');
+  const summaryEl = document.getElementById('tsSummary');
+  const top10El = document.getElementById('tsTop10Wrap');
+  const champEl = document.getElementById('tsChampWrap');
+  if(!months.length){
+    if(sel) sel.innerHTML = '';
+    if(summaryEl) summaryEl.innerHTML = '<div style="color:var(--text-muted);">ไม่มีข้อมูลตามตัวกรองที่เลือก</div>';
+    if(top10El) top10El.innerHTML = '';
+    if(champEl) champEl.innerHTML = '';
+    return;
+  }
+  if(!tsMonth || !months.includes(tsMonth)) tsMonth = months[months.length - 1];   // ค่าเริ่มต้น = เดือนล่าสุด
+  if(sel){
+    const desc = months.slice().reverse();  // ใหม่ -> เก่า ให้เลือกง่าย
+    sel.innerHTML = desc.map(mk => `<option value="${mk}"${mk === tsMonth ? ' selected' : ''}>${topSpenderMonthLabel(mk)}</option>`).join('');
+  }
+
+  const rows = topSpenderRowsForMonth(tsMonth);
+  const top10 = rows.slice(0, 10);
+  const filterTxt = (state.team !== 'all' || state.person)
+    ? ` • ตัวกรอง: <b>${TEAM_LABEL(state.team)}</b>${state.person ? ' › <b>' + state.person + '</b>' : ''}` : '';
+  const totalAmount = rows.reduce((s, r) => s + (r.purchased_amount || 0), 0);
+  if(summaryEl){
+    summaryEl.innerHTML = rows.length
+      ? `<div>${topSpenderMonthLabel(tsMonth)}${filterTxt} • ลูกค้าที่นับ <b>${fmtNum(rows.length)}</b> ราย • ยอดซื้อสะสมรวม <b>${fmtBaht(totalAmount)}</b></div>
+         <div>อันดับ 1 ของเดือนนี้: <b>${top10[0].name || '-'}</b> — ${fmtBaht(top10[0].purchased_amount)} (${fmtNum(top10[0].order_count)} ออเดอร์)</div>`
+      : `<div style="color:var(--text-muted);">ไม่มีลูกค้าที่ผ่านเงื่อนไข (มีเบอร์โทร + ไม่ถูกปิดบัง) ในเดือนนี้</div>`;
+  }
+  if(top10El){
+    top10El.innerHTML = top10.length
+      ? `<table class="order-table">
+         <thead><tr><th>#</th><th>ชื่อ</th><th>เบอร์โทร</th><th style="text-align:right">ออเดอร์</th><th style="text-align:right">ยอดซื้อสะสม</th><th>ช่องทาง</th></tr></thead>
+         <tbody>${top10.map((r, i) => `<tr>
+           <td>${topSpenderRankBadge(i)}</td>
+           <td>${r.name || '-'}</td>
+           <td>${r.phone_number || '-'}</td>
+           <td class="num">${fmtNum(r.order_count)}</td>
+           <td class="num">${fmtBaht(r.purchased_amount)}</td>
+           <td style="color:var(--text-secondary);">${r.source || '-'}</td></tr>`).join('')}</tbody></table>`
+      : `<div style="font-size:12.5px;color:var(--text-muted);">ไม่มีลูกค้าในเดือนนี้</div>`;
+  }
+  if(champEl){
+    const champRows = months.slice().reverse().map(mk => {
+      const r = mk === tsMonth ? rows : topSpenderRowsForMonth(mk);
+      return { mk, champ: r[0] || null, count: r.length };
+    });
+    champEl.innerHTML = `<table class="order-table">
+      <thead><tr><th>เดือน</th><th>แชมป์</th><th>เบอร์โทร</th><th style="text-align:right">ยอดซื้อสะสม</th><th style="text-align:right">ลูกค้าที่นับ</th></tr></thead>
+      <tbody>${champRows.map(c => c.champ ? `<tr>
+        <td>${topSpenderMonthLabel(c.mk)}${c.mk === tsMonth ? ' <span class="pf-pill" style="background:var(--series-3);">กำลังดู</span>' : ''}</td>
+        <td>🏆 ${c.champ.name || '-'}</td>
+        <td>${c.champ.phone_number || '-'}</td>
+        <td class="num">${fmtBaht(c.champ.purchased_amount)}</td>
+        <td class="num">${fmtNum(c.count)}</td></tr>` : `<tr><td>${topSpenderMonthLabel(c.mk)}</td><td colspan="4" style="color:var(--text-muted);">ไม่มีลูกค้าที่ผ่านเงื่อนไข</td></tr>`).join('')}</tbody></table>`;
+  }
+}
+
 /* ==================== POS TRANSACTION EXPORT ==================== */
 // สร้างแถวข้อมูลตาม template POS (43 คอลัมน์) — 1 ออเดอร์ = 1 บิล, สินค้าแต่ละชิ้น = 1 แถว
 // คอลัมน์ระดับบิล (ชื่อร้าน/ยอดเงิน/วิธีจ่าย ฯลฯ) ใส่เฉพาะ "แถวแรก" ของแต่ละบิล, Order No + คอลัมน์สินค้าใส่ทุกแถว
@@ -7460,7 +7565,7 @@ function renderAll(){
   renderTeamBar();
   renderChips(); renderCancelCard(); renderPageConversion(); renderTargetInputs(); renderKPI(); renderTrend(); renderProductChart(); renderPromoChart(); renderOrders(); renderPaymentChart();
   renderPaymentProducts(); renderChannelPie();
-  renderChannelHeatmap(); renderRepHeatmap(); renderSetChart(); renderReportCard(); renderMcCard(); renderContactCard(); renderPosCard(); renderRangeExport(); renderFooter();
+  renderChannelHeatmap(); renderRepHeatmap(); renderSetChart(); renderReportCard(); renderMcCard(); renderContactCard(); renderTopSpenderCard(); renderPosCard(); renderRangeExport(); renderFooter();
 }
 
 // ---- การ์ดสรุปยอดขายส่งทีม: ปุ่มคัดลอก + ช่อง Focus Set (จำค่าไว้ในเบราว์เซอร์เครื่องนี้) ----
@@ -7498,6 +7603,7 @@ document.getElementById('btnExportContact').addEventListener('click', exportCont
   const el = document.getElementById(id);
   if(el) el.addEventListener('change', renderContactCard);
 });
+document.getElementById('tsMonthSelect').addEventListener('change', function(){ tsMonth = this.value; renderTopSpenderCard(); });
 document.getElementById('btnCtPreview').addEventListener('click', () => {
   const w = document.getElementById('ctPreviewWrap');
   const showing = w.style.display !== 'none';
