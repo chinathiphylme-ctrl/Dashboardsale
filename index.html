@@ -6001,10 +6001,17 @@ function recomputeDataset(){
       const rec = chatByDatePage[d]; if(!rec) return;
       for(const k in rec){ if(convByPage[k]) convByPage[k].newChats += rec[k].newChats; }
     });
+    // ปิดการขายแยกตาม "วัน+เพจ" ไว้ด้วย — ใช้จำกัดช่วงวันของ Conversion ให้ตรงกับวันที่มีไฟล์
+    // สถิติหน้าของ Pancake จริง ๆ (กันไม่ให้ตัวตั้งเป็นทั้งเดือนแต่ตัวหารมีแค่บางวัน จนเกิน 100%)
+    const closesByDatePage = {};
     let phoneCloses = 0, phoneSales = 0;
     periodLeads.forEach(r => {
       const k = canonLeadPage(r);
-      if(convByPage[k]){ convByPage[k].closes += 1; convByPage[k].sales += withVat(r['Lead Value']); }
+      if(convByPage[k]){
+        convByPage[k].closes += 1; convByPage[k].sales += withVat(r['Lead Value']);
+        const d = r.__date;
+        if(d){ (closesByDatePage[d] = closesByDatePage[d] || {})[k] = (closesByDatePage[d][k] || 0) + 1; }
+      }
       else { phoneCloses += 1; phoneSales += withVat(r['Lead Value']); }
     });
     const convPages = PAGE_DEFS.map(pg => {
@@ -6025,6 +6032,7 @@ function recomputeDataset(){
       pages: convPages, teams: convTeams, totalChats: convTotalChats, pageCloses: convPageCloses,
       convRate: convTotalChats ? convPageCloses/convTotalChats : null,
       phoneCloses, phoneSales: Math.round(phoneSales*100)/100, hasChat,
+      closesByDatePage,
     };
 
     // ---- Conversion รายคน (แอดมิน) จากไฟล์สถิติ Pancake ----
@@ -7299,8 +7307,15 @@ function renderPageConversion(){
 
   // ---- แยกรายเพจ (กรองตามทีมที่เลือก) ----
   const inTeam = k => !teamPageKeys || teamPageKeys.indexOf(k) >= 0;
+  // ปิดการขาย (ตัวตั้ง) นับเฉพาะวันที่ไฟล์สถิติหน้ามีข้อมูลจริง (ps.dates) ไม่ใช่ทั้งช่วงที่เลือก
+  // เพราะ "ลูกค้าใหม่" (ตัวหาร) มีแค่วันที่มีไฟล์ — ถ้าตัวตั้งเป็นทั้งเดือนจะทำให้ Conversion เกิน 100%
   const closesByPage = {};
-  (p.conversion && p.conversion.pages || []).forEach(x => { closesByPage[x.key] = x.closes; });
+  PAGE_DEFS.forEach(pg => { closesByPage[pg.key] = 0; });
+  const cbdp = (p.conversion && p.conversion.closesByDatePage) || {};
+  (ps.dates || []).forEach(d => {
+    const rec = cbdp[d]; if(!rec) return;
+    for(const k in rec){ if(k in closesByPage) closesByPage[k] += rec[k]; }
+  });
   const pageRows = Object.keys(ps.perPage).filter(inTeam).map(k => {
     const d = PAGE_DEF_BY_KEY[k] || { page:k, platform:'', color:'var(--baseline)' };
     const m = ps.perPage[k];
@@ -7762,8 +7777,16 @@ function buildSalesReportText(){
 
   // ---- Conversion Rate ทีมแอดมิน — ใช้แหล่งเดียวกับการ์ด Conversion บนหน้านี้ ----
   const ps = collectPageStat(dates);
+  // นับปิดการขายเฉพาะวันที่ไฟล์สถิติหน้ามีจริง (เหมือนการ์ด Conversion) กัน Conversion เกิน 100%
   const closesByPage = {};
-  ((p.conversion && p.conversion.pages) || []).forEach(x => { closesByPage[x.key] = x.closes; });
+  PAGE_DEFS.forEach(pg => { closesByPage[pg.key] = 0; });
+  {
+    const cbdp = (p.conversion && p.conversion.closesByDatePage) || {};
+    (ps && ps.dates || []).forEach(d => {
+      const rec = cbdp[d]; if(!rec) return;
+      for(const k in rec){ if(k in closesByPage) closesByPage[k] += rec[k]; }
+    });
+  }
   if(!ps || ps.empty){
     notes.push(ps ? 'มีไฟล์สถิติหน้าอยู่ แต่ไม่มีวันไหนตรงกับช่วงที่เลือก — รายงานจึงไม่มีส่วน Conversion'
                   : 'ยังไม่ได้อัปโหลดไฟล์ “สถิติหน้า” ของ Pancake — รายงานจึงไม่มีส่วน Conversion');
