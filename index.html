@@ -220,6 +220,9 @@
   .order-table td{ padding:9px 10px; border-bottom:1px solid var(--grid); color:var(--text-primary); }
   .order-table td.num{ text-align:right; font-variant-numeric:tabular-nums; font-weight:600;}
   .order-table tr:last-child td{ border-bottom:none; }
+  .order-table tr.clickable-row{ cursor:pointer; }
+  .order-table tr.clickable-row:hover td{ filter:brightness(1.06); }
+  .order-table tr.detail-row td{ background:var(--surface-1); }
   .scroll-table{ max-height:360px; overflow-y:auto; border-radius:10px; }
   .scroll-table::-webkit-scrollbar{ width:6px; }
   .scroll-table::-webkit-scrollbar-thumb{ background:var(--baseline); border-radius:6px; }
@@ -982,8 +985,8 @@ footer{ border-top:1px solid var(--glass-line); }
         </label>
       </div>
       <div id="tsSummary" style="font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.9;"></div>
-      <div style="font-weight:700;font-size:13.5px;margin:0 0 10px;">Top 10 ของเดือนที่เลือก</div>
-      <div id="tsTop10Wrap" class="scroll-table" style="margin-bottom:20px;"></div>
+      <div id="tsTop10Title" style="font-weight:700;font-size:13.5px;margin:0 0 10px;">Top 10 ของเดือนที่เลือก</div>
+      <div id="tsTop10Wrap" class="scroll-table" style="max-height:520px;margin-bottom:20px;"></div>
       <div style="font-weight:700;font-size:13.5px;margin:0 0 10px;">สรุปแชมป์ทุกเดือน</div>
       <div id="tsChampWrap" class="scroll-table"></div>
     </div>
@@ -1480,6 +1483,8 @@ let state = { mode:'day', dayIndex:0, weekIndex:0, monthIndex:0, rgFrom:null, rg
 let DATA_STAMP = 0;   // เพิ่มขึ้น 1 ทุกครั้งที่คำนวณชุดข้อมูลใหม่ — ใช้ล้างแคชของช่วงที่เลือกเอง
 let productMetric = 'units';   // 'units' = นับชิ้น, 'orders' = นับออเดอร์
 let tsMonth = null;            // เดือนที่เลือกอยู่ในการ์ด Top Spender รายเดือน (YYYY-MM)
+let tsShowCount = 10;          // จำนวนแถวที่แสดงอยู่ในตาราง Top Spender (กด "ดูเพิ่ม" เพื่อเพิ่มทีละ 10)
+let tsExpanded = new Set();    // index ของแถวที่ถูกกดเปิดดูสินค้าที่ซื้อ (คงสถานะไว้ตอน re-render)
 let mcExcludedReps = new Set(); // ผู้ดูแลที่ "ไม่" เลือก export MC (ติ๊กออก) — ว่าง = เลือกทุกคน
 let mcApproval = {};            // override สถานะอนุมัติราย SKU (ว่าง = ใช้กฎเริ่มต้น)
 // ไฟล์ Pancake ที่ export มาโดยไม่มีคอลัมน์ "วันที่ยืนยันคำสั่งซื้อ" (ยอดจะตกวันที่สร้างบิลแทน)
@@ -4826,6 +4831,7 @@ function buildContactRows(leads, products, contactAccountByLead){
         order_count:c.orders, succeed_order_count:c.orders,
         purchased_amount: Math.round(c.amount * 100) / 100,
         created_on:c.first, created_by:c.firstOwner,
+        products: Array.from(c.products),
       });
     });
   return { rows, flagged };
@@ -5187,18 +5193,56 @@ function renderTopSpenderCard(){
          <div>อันดับ 1 ของเดือนนี้: <b>${top10[0].name || '-'}</b> — ${fmtBaht(top10[0].purchased_amount)} (${fmtNum(top10[0].order_count)} ออเดอร์)</div>`
       : `<div style="color:var(--text-muted);">ไม่มีลูกค้าที่ผ่านเงื่อนไข (มีเบอร์โทร + ไม่ถูกปิดบัง) ในเดือนนี้</div>`;
   }
+  const titleEl = document.getElementById('tsTop10Title');
+  const shownCount = Math.min(tsShowCount, rows.length);
+  if(titleEl){
+    titleEl.textContent = rows.length
+      ? `Top ${fmtNum(shownCount)} ของเดือนที่เลือก (จากทั้งหมด ${fmtNum(rows.length)} คน) — คลิกที่แถวเพื่อดูสินค้าที่ซื้อ`
+      : 'Top 10 ของเดือนที่เลือก';
+  }
   if(top10El){
-    top10El.innerHTML = top10.length
+    const shown = rows.slice(0, tsShowCount);
+    const remaining = rows.length - shown.length;
+    top10El.innerHTML = shown.length
       ? `<table class="order-table">
-         <thead><tr><th>#</th><th>ชื่อ</th><th>เบอร์โทร</th><th style="text-align:right">ออเดอร์</th><th style="text-align:right">ยอดซื้อสะสม</th><th>ช่องทาง</th></tr></thead>
-         <tbody>${top10.map((r, i) => `<tr>
-           <td>${topSpenderRankBadge(i)}</td>
-           <td>${r.name || '-'}</td>
-           <td>${r.phone_number || '-'}</td>
-           <td class="num">${fmtNum(r.order_count)}</td>
-           <td class="num">${fmtBaht(r.purchased_amount)}</td>
-           <td style="color:var(--text-secondary);">${r.source || '-'}</td></tr>`).join('')}</tbody></table>`
+         <thead><tr><th></th><th>#</th><th>ชื่อ</th><th>เบอร์โทร</th><th style="text-align:right">ออเดอร์</th><th style="text-align:right">ยอดซื้อสะสม</th><th>ช่องทาง</th></tr></thead>
+         <tbody>${shown.map((r, i) => {
+           const prod = (r.products && r.products.length) ? r.products.join(', ') : 'ไม่มีข้อมูลสินค้า (ไม่มี SKU ในออเดอร์)';
+           const open = tsExpanded.has(i);
+           return `<tr class="clickable-row ts-row" data-i="${i}">
+             <td style="width:16px;color:var(--text-muted);">${open ? '▾' : '▸'}</td>
+             <td>${topSpenderRankBadge(i)}</td>
+             <td>${r.name || '-'}</td>
+             <td>${r.phone_number || '-'}</td>
+             <td class="num">${fmtNum(r.order_count)}</td>
+             <td class="num">${fmtBaht(r.purchased_amount)}</td>
+             <td style="color:var(--text-secondary);">${r.source || '-'}</td></tr>
+           <tr class="detail-row" data-detail-i="${i}" style="${open ? '' : 'display:none;'}">
+             <td></td>
+             <td colspan="6" style="color:var(--text-secondary);font-size:12px;line-height:1.6;">🛒 สินค้าที่เคยซื้อ: ${prod}</td></tr>`;
+         }).join('')}</tbody></table>
+         <div style="text-align:center;margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+           ${remaining > 0 ? `<button class="table-toggle" id="tsShowMoreBtn">ดูเพิ่มอีก ${fmtNum(Math.min(10, remaining))} คน (เหลืออีก ${fmtNum(remaining)})</button>` : ''}
+           ${tsShowCount > 10 ? `<button class="table-toggle" id="tsShowLessBtn">ย่อกลับเหลือ Top 10</button>` : ''}
+         </div>`
       : `<div style="font-size:12.5px;color:var(--text-muted);">ไม่มีลูกค้าในเดือนนี้</div>`;
+
+    top10El.querySelectorAll('tr.ts-row').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const i = Number(tr.getAttribute('data-i'));
+        const detail = top10El.querySelector(`tr.detail-row[data-detail-i="${i}"]`);
+        if(!detail) return;
+        const willOpen = detail.style.display === 'none';
+        detail.style.display = willOpen ? '' : 'none';
+        if(willOpen) tsExpanded.add(i); else tsExpanded.delete(i);
+        const arrow = tr.querySelector('td');
+        if(arrow) arrow.textContent = willOpen ? '▾' : '▸';
+      });
+    });
+    const moreBtn = document.getElementById('tsShowMoreBtn');
+    if(moreBtn) moreBtn.addEventListener('click', () => { tsShowCount += 10; renderTopSpenderCard(); });
+    const lessBtn = document.getElementById('tsShowLessBtn');
+    if(lessBtn) lessBtn.addEventListener('click', () => { tsShowCount = 10; tsExpanded.clear(); renderTopSpenderCard(); });
   }
   if(champEl){
     const champRows = months.slice().reverse().map(mk => {
@@ -7924,7 +7968,7 @@ document.getElementById('btnClPreview').addEventListener('click', () => {
   const el = document.getElementById(id);
   if(el) el.addEventListener('change', renderContactCard);
 });
-document.getElementById('tsMonthSelect').addEventListener('change', function(){ tsMonth = this.value; renderTopSpenderCard(); });
+document.getElementById('tsMonthSelect').addEventListener('change', function(){ tsMonth = this.value; tsShowCount = 10; tsExpanded.clear(); renderTopSpenderCard(); });
 document.getElementById('btnCtPreview').addEventListener('click', () => {
   const w = document.getElementById('ctPreviewWrap');
   const showing = w.style.display !== 'none';
