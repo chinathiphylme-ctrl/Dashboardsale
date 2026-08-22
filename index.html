@@ -1481,7 +1481,6 @@ let DATA_STAMP = 0;   // เพิ่มขึ้น 1 ทุกครั้ง�
 let productMetric = 'units';   // 'units' = นับชิ้น, 'orders' = นับออเดอร์
 let tsMonth = null;            // เดือนที่เลือกอยู่ในการ์ด Top Spender รายเดือน (YYYY-MM)
 let mcExcludedReps = new Set(); // ผู้ดูแลที่ "ไม่" เลือก export MC (ติ๊กออก) — ว่าง = เลือกทุกคน
-let mcRepsSeen = new Set();     // ผู้ดูแลที่เคยเจอแล้ว — ใช้ตั้งค่าเริ่มต้นของผู้ดูแลที่เพิ่งเจอครั้งแรกให้เป็น "ไม่ติ๊ก" (ต้องมาติ๊กเลือกเอง)
 let mcApproval = {};            // override สถานะอนุมัติราย SKU (ว่าง = ใช้กฎเริ่มต้น)
 // ไฟล์ Pancake ที่ export มาโดยไม่มีคอลัมน์ "วันที่ยืนยันคำสั่งซื้อ" (ยอดจะตกวันที่สร้างบิลแทน)
 let pancakeDateWarnings = [];
@@ -4180,10 +4179,10 @@ function isPreorderItem(p){
   return PREORDER_NAME_KEYWORDS.some(k => nm.includes(k.toLowerCase()));
 }
 // สถานะออเดอร์ MC: ผู้ใช้ติ๊กเลือกได้ว่า SKU ไหน "อนุมัติ (Fulfill)"
-// ค่าเริ่มต้น: สินค้าที่ไม่ใช่พรีออเดอร์ = อนุมัติ, พรีออเดอร์ (Olive/GABA) = จอง
+// ค่าเริ่มต้น: ไม่ติ๊กสักตัว (ทุก SKU เริ่มที่ "จอง (OnHold)" เสมอ) ต้องมาติ๊กเลือกเองว่าตัวไหนอนุมัติแล้ว
 // mcApproval[SKU] = true/false เป็น override ที่ผู้ใช้กด (ถ้าไม่มี key ใช้ค่าเริ่มต้น)
 function skuOf(p){ return String(p['Product Code'] || '').trim().toUpperCase(); }
-function defaultApproved(p){ return !isPreorderItem(p); }
+function defaultApproved(p){ return false; }
 function isSkuApproved(p){
   const sku = skuOf(p);
   if(mcApproval && Object.prototype.hasOwnProperty.call(mcApproval, sku)) return mcApproval[sku];
@@ -7144,10 +7143,7 @@ function renderMcRepFilter(p){
   const counts = {};
   p._rawLeads.forEach(l => { const k = mcRepKey(l['Current User Name']); counts[k] = (counts[k]||0) + 1; });
   const reps = Object.keys(counts).sort();
-  if(reps.length <= 1){ wrap.innerHTML = ''; return; }   // มีคนเดียว ไม่ต้องมีตัวกรอง (นับเป็นเลือกอยู่เสมอ)
-  // default ของช่องติ๊กผู้ดูแล = "ไม่ติ๊กสักคน" (ต้องมาติ๊กเลือกเอง) — ทำครั้งเดียวต่อผู้ดูแลแต่ละคน
-  // ตอนที่เจอชื่อนั้นครั้งแรก ไม่งั้นถ้าผู้ใช้ติ๊กเลือกเองแล้วจะถูกรีเซ็ตกลับทุกครั้งที่ re-render
-  reps.forEach(r => { if(!mcRepsSeen.has(r)){ mcRepsSeen.add(r); mcExcludedReps.add(r); } });
+  if(reps.length <= 1){ wrap.innerHTML = ''; return; }   // มีคนเดียว ไม่ต้องมีตัวกรอง
   const chips = reps.map(r => {
     const checked = !mcExcludedReps.has(r);
     return `<label class="rep-check"><input type="checkbox" data-rep="${r.replace(/"/g,'&quot;')}" ${checked?'checked':''}> ${r} <span class="n">(${counts[r]})</span></label>`;
