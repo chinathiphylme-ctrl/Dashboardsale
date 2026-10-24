@@ -20,6 +20,11 @@
   .hv-card .hv-rem{ display:flex; gap:8px; align-items:center; margin:12px 0 16px; font-size:13px; color:var(--text-secondary); }
   .hv-card .hv-row{ display:flex; gap:8px; justify-content:flex-end; }
   .hv-card .hv-err{ min-height:18px; margin-top:10px; font-size:13px; color:var(--critical); }
+  .hv-card .hv-msg{ white-space:pre-line; overflow-wrap:anywhere; }
+  .hv-card .hv-field{ display:block; margin:0 0 10px; font-size:12.5px; font-weight:600; color:var(--text-secondary); }
+  .hv-card .hv-field input{ display:block; width:100%; margin-top:4px; padding:9px 11px; font:inherit; font-size:14px; font-weight:400;
+    color:var(--text-primary); background:var(--surface-1); border:1px solid var(--border); border-radius:10px; }
+  .hv-card .hv-field + .hv-row{ margin-top:16px; }
 </style>
 <script>
 /* ==================== HYLME VAULT — ดูได้ทุกคน / ข้อมูลจริงต้องใช้รหัส ====================
@@ -430,10 +435,49 @@
     });
   }
 
+  /* ---------- กล่องข้อความ / ฟอร์มในหน้าเว็บ (แทน alert/confirm/prompt ที่บางเบราว์เซอร์ไม่แสดง) ----------
+     dialog({title, message, fields:[{name, label, value, type, placeholder}], okText, cancelText})
+       มี fields -> คืน {name: value} หรือ null ถ้ายกเลิก · ไม่มี fields -> คืน true / null
+       cancelText: null = มีแต่ปุ่มตกลง (ใช้แทน alert) */
+  function dialog(o){
+    return new Promise(resolve => {
+      const el = (tag, cls, text) => { const e = document.createElement(tag); if(cls) e.className = cls; if(text != null) e.textContent = text; return e; };
+      const ov = el('div', 'hv-overlay'), form = el('form', 'hv-card');
+      form.setAttribute('role', 'dialog'); form.setAttribute('aria-modal', 'true');
+      form.appendChild(el('h2', null, o.title));
+      if(o.message) form.appendChild(el('p', 'hv-msg', o.message));
+      const inputs = {};
+      (o.fields || []).forEach(f => {
+        const lab = el('label', 'hv-field', f.label);
+        const inp = el('input');
+        inp.type = f.type || 'text'; inp.value = f.value || ''; inp.placeholder = f.placeholder || '';
+        inp.autocomplete = 'off'; inp.spellcheck = false;
+        lab.appendChild(inp); form.appendChild(lab); inputs[f.name] = inp;
+      });
+      const row = el('div', 'hv-row');
+      if(o.cancelText !== null){
+        const c = el('button', 'btn', o.cancelText || 'ยกเลิก'); c.type = 'button';
+        c.addEventListener('click', () => close(null)); row.appendChild(c);
+      }
+      const ok = el('button', 'btn primary', o.okText || 'ตกลง'); ok.type = 'submit';
+      row.appendChild(ok); form.appendChild(row); ov.appendChild(form); document.body.appendChild(ov);
+      const onKey = e => { if(e.key === 'Escape') close(o.cancelText === null ? true : null); };
+      document.addEventListener('keydown', onKey, true);
+      function close(v){ ov.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); }
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        if(!o.fields || !o.fields.length) return close(true);
+        const v = {}; for(const k in inputs) v[k] = inputs[k].value; close(v);
+      });
+      (Object.values(inputs)[0] || ok).focus();
+    });
+  }
+  const notice = (title, message) => dialog({title:title, message:message, cancelText:null});
+
   /* ---------- ส่งออกข้อมูลชุดใหม่ (ปุ่มหลังบ้าน) ---------- */
   function needKey(){
     if(V.key) return true;
-    alert(isPublic() ? 'ต้องปลดล็อกก่อน'
+    notice('ยังส่งข้อมูลไม่ได้', isPublic() ? 'ต้องปลดล็อกก่อน (กดแม่กุญแจมุมบนซ้าย)'
       : 'ไฟล์ต้นฉบับ (private/dashboard.html) ส่งขึ้นเว็บตรง ๆ ไม่ได้ — รัน "node tools/build.mjs" แล้วอัป index.html แทน\nหรือเปิดหน้าเว็บจริงแล้วปลดล็อกก่อนกดปุ่มนี้');
     return false;
   }
@@ -457,6 +501,7 @@
 
   window.HylmeVault = {
     isLocked:isLocked, isPublic:isPublic, autoUnlock:autoUnlock, promptUnlock:promptUnlock, lock:lock,
+    dialog:dialog, notice:notice,
     setDataFileEnc:env => { V.dataFileEnc = env || null; },
     buildDataJson:buildDataJson, buildBakeParts:buildBakeParts, fillSlots:fillSlots,
     // ใช้โดย tools/build.mjs และชุดทดสอบ
@@ -3775,20 +3820,39 @@ function ghGetCfg(){
 }
 function ghSaveCfg(cfg){ try{ localStorage.setItem(GH_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
 
-function ghSetup(){
-  const cur = ghGetCfg() || {owner:'', repo:'', branch:'main', path:'data.json', token:''};
-  const owner = prompt('GitHub username หรือ org (เจ้าของ repo)', cur.owner); if(owner === null) return null;
-  const repo = prompt('ชื่อ repo', cur.repo); if(repo === null) return null;
-  const branch = prompt('branch ที่ GitHub Pages ใช้ (ปกติ main)', cur.branch || 'main'); if(branch === null) return null;
-  const path = prompt('ชื่อไฟล์ข้อมูลใน repo', cur.path || 'data.json'); if(path === null) return null;
-  const token = prompt('GitHub token (fine-grained: สิทธิ์ Contents = Read and write เฉพาะ repo นี้)\n\nโทเคนถูกเก็บไว้ในเบราว์เซอร์เครื่องนี้เท่านั้น ไม่ถูกอัปขึ้น GitHub', cur.token || ''); if(token === null) return null;
-  const cfg = {
-    owner: (owner||'').trim(), repo: (repo||'').trim(),
-    branch: ((branch||'').trim() || 'main'), path: ((path||'').trim() || 'data.json'),
-    token: (token||'').trim()
-  };
+// เปิดจาก <owner>.github.io/<repo>/ -> เดา owner / repo ให้เลย
+function ghPagesDefaults(){
+  const h = location.hostname, m = /^([^.]+)\.github\.io$/i.exec(h);
+  return m ? {owner:m[1], repo:location.pathname.split('/').filter(Boolean)[0] || h} : {owner:'', repo:''};
+}
+async function ghSetup(){
+  const def = ghPagesDefaults();
+  const cur = ghGetCfg() || {};
+  const v = await HylmeVault.dialog({
+    title: 'ตั้งค่า GitHub',
+    message: 'ใช้กับปุ่ม "ส่งข้อมูลขึ้น GitHub"\ntoken = Fine-grained token ที่ให้สิทธิ์ Contents = Read and write เฉพาะ repo นี้\nเก็บไว้ในเบราว์เซอร์เครื่องนี้เท่านั้น ไม่ถูกอัปขึ้น GitHub',
+    fields: [
+      {name:'owner', label:'GitHub username / org (เจ้าของ repo)', value:cur.owner || def.owner},
+      {name:'repo', label:'ชื่อ repo', value:cur.repo || def.repo},
+      {name:'branch', label:'branch ที่ GitHub Pages ใช้', value:cur.branch || 'main'},
+      {name:'path', label:'ชื่อไฟล์ข้อมูลใน repo', value:cur.path || 'data.json'},
+      {name:'token', label:'GitHub token', value:cur.token || '', type:'password', placeholder:'github_pat_…'}
+    ],
+    okText: 'บันทึก'
+  });
+  if(!v) return null;
+  const cfg = {owner:v.owner.trim(), repo:v.repo.trim(), branch:v.branch.trim() || 'main', path:v.path.trim() || 'data.json', token:v.token.trim()};
+  if(!cfg.owner || !cfg.repo || !cfg.token){ await HylmeVault.notice('ยังตั้งค่าไม่ครบ', 'ต้องกรอก username, ชื่อ repo และ token'); return null; }
   ghSaveCfg(cfg);
-  alert('บันทึกการตั้งค่าแล้ว ✅\n\n' + cfg.owner + '/' + cfg.repo + ' (' + cfg.branch + ') -> ' + cfg.path);
+  // ลองเรียก GitHub ด้วย token นี้ทันที จะได้รู้เลยว่าใช้ได้ไหม
+  let check;
+  try{
+    await ghApi(cfg, '/repos/' + encodeURIComponent(cfg.owner) + '/' + encodeURIComponent(cfg.repo) + '/branches/' + encodeURIComponent(cfg.branch));
+    check = 'ทดสอบเชื่อมต่อ repo: ใช้ได้ ✅';
+  }catch(e){
+    check = 'ทดสอบเชื่อมต่อ repo: ไม่ได้ ❌\n' + e.message + '\n\nตรวจ token / ชื่อ repo / branch แล้วกด "ตั้งค่า GitHub" ใหม่';
+  }
+  await HylmeVault.notice('บันทึกการตั้งค่าแล้ว', cfg.owner + '/' + cfg.repo + ' (' + cfg.branch + ') → ' + cfg.path + '\n\n' + check);
   return cfg;
 }
 
@@ -3823,9 +3887,9 @@ function ghB64(str){
 }
 
 async function publishToGitHub(){
-  if(!uploadedFiles.length){ alert('ยังไม่มีข้อมูลให้ส่งขึ้น — อัปโหลดไฟล์ก่อน'); return; }
+  if(!uploadedFiles.length){ HylmeVault.notice('ยังไม่มีข้อมูลให้ส่งขึ้น', 'อัปโหลดไฟล์ก่อน'); return; }
   let cfg = ghGetCfg();
-  if(!cfg || !cfg.owner || !cfg.repo || !cfg.token){ cfg = ghSetup(); if(!cfg) return; }
+  if(!cfg || !cfg.owner || !cfg.repo || !cfg.token){ cfg = await ghSetup(); if(!cfg) return; }
   const btnP = document.getElementById('btnPublish');
   if(btnP) btnP.textContent = '⏳ เตรียมข้อมูล (ปิดชื่อ/เบอร์ + เข้ารหัส)';
   const pub = await HylmeVault.buildDataJson(uploadedFiles);
@@ -3833,7 +3897,7 @@ async function publishToGitHub(){
   if(!pub) return;
   const json = JSON.stringify(pub);
   const mb = (json.length / 1048576).toFixed(1);
-  const ok = confirm('ส่งข้อมูลขึ้น GitHub\n\nrepo: ' + cfg.owner + '/' + cfg.repo + ' (' + cfg.branch + ')\nไฟล์: ' + cfg.path + '\nขนาด ~' + mb + ' MB\n\nทุกคนเห็น: ยอดขายครบ แต่ชื่อ/เบอร์/ที่อยู่ลูกค้าเป็นค่าปลอม\nข้อมูลจริง: เข้ารหัสไว้ เปิดได้ด้วยรหัสผ่านเท่านั้น 🔒');
+  const ok = await HylmeVault.dialog({title:'ส่งข้อมูลขึ้น GitHub', okText:'ส่งข้อมูล', message:'repo: ' + cfg.owner + '/' + cfg.repo + ' (' + cfg.branch + ')\nไฟล์: ' + cfg.path + '\nขนาด ~' + mb + ' MB\n\nทุกคนเห็น: ยอดขายครบ แต่ชื่อ/เบอร์/ที่อยู่ลูกค้าเป็นค่าปลอม\nข้อมูลจริง: เข้ารหัสไว้ เปิดได้ด้วยรหัสผ่านเท่านั้น 🔒'});
   if(!ok) return;
   const btn = document.getElementById('btnPublish');
   const label = btn ? btn.textContent : '';
@@ -3857,9 +3921,9 @@ async function publishToGitHub(){
     });
     if(btn) btn.textContent = '⏳ อัปเดต branch (4/4)';
     await ghApi(cfg, base + '/git/refs/heads/' + cfg.branch, 'PATCH', {sha: commit.sha});
-    alert('ส่งข้อมูลขึ้น GitHub เรียบร้อย ✅\n\ncommit ' + commit.sha.slice(0, 7) + '\nGitHub Pages จะ build ใหม่ ~1 นาที แล้วทุกคนเห็นข้อมูลชุดนี้');
+    HylmeVault.notice('ส่งข้อมูลขึ้น GitHub เรียบร้อย ✅', 'commit ' + commit.sha.slice(0, 7) + '\nGitHub Pages จะ build ใหม่ ~1 นาที แล้วทุกคนเห็นข้อมูลชุดนี้');
   }catch(e){
-    alert('ส่งข้อมูลไม่สำเร็จ ❌\n\n' + e.message + '\n\nลองกด "ตั้งค่า GitHub" เพื่อตรวจ token / ชื่อ repo / branch อีกครั้ง');
+    HylmeVault.notice('ส่งข้อมูลไม่สำเร็จ ❌', e.message + '\n\nลองกด "ตั้งค่า GitHub" เพื่อตรวจ token / ชื่อ repo / branch อีกครั้ง');
   }finally{
     if(btn){ btn.disabled = false; btn.textContent = label; }
   }
@@ -4369,8 +4433,9 @@ function clearLocal(){ try{ localStorage.removeItem(LS_KEY); }catch(e){} clearIn
 
 // สร้างไฟล์ index.html ใหม่ที่ "ฝังข้อมูลปัจจุบัน" ไว้ในตัว -> อัปขึ้น Netlify แล้วทุกคนเห็นได้โดยไม่ต้องอัปโหลด
 async function bakeAndDownload(){
-  if(!uploadedFiles.length){ alert('ยังไม่มีข้อมูลให้ฝัง — อัปโหลดไฟล์ก่อน'); return; }
-  const ok = confirm('จะสร้างไฟล์เว็บ (index.html) ที่มีข้อมูลชุดนี้ฝังอยู่ในตัว\n\nทุกคนเห็น: ยอดขายครบ แต่ชื่อ/เบอร์/ที่อยู่ลูกค้าเป็นค่าปลอม\nข้อมูลจริง: เข้ารหัสไว้ เปิดได้ด้วยรหัสผ่านเท่านั้น 🔒\n\nดำเนินการต่อ?');
+  if(!uploadedFiles.length){ HylmeVault.notice('ยังไม่มีข้อมูลให้ฝัง', 'อัปโหลดไฟล์ก่อน'); return; }
+  const ok = await HylmeVault.dialog({title:'สร้างไฟล์เว็บ (index.html)', okText:'สร้างไฟล์',
+    message:'ไฟล์ใหม่จะมีข้อมูลชุดนี้ฝังอยู่ในตัว\n\nทุกคนเห็น: ยอดขายครบ แต่ชื่อ/เบอร์/ที่อยู่ลูกค้าเป็นค่าปลอม\nข้อมูลจริง: เข้ารหัสไว้ เปิดได้ด้วยรหัสผ่านเท่านั้น 🔒'});
   if(!ok) return;
   // escape "<" เพื่อกันไม่ให้ tag script ถูกปิดกลางคัน ตอนฝังข้อมูลลง HTML
   const parts = await HylmeVault.buildBakeParts(uploadedFiles);
