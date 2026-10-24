@@ -1,0 +1,12 @@
+{
+  "name": "hylme-dashboard-api",
+  "private": true,
+  "type": "module",
+  "description": "Neon Function: เก็บ/อ่านข้อมูลแดชบอร์ด (ชุดปิดชื่อ + ชุดจริงที่เข้ารหัส) — ไม่มี dependency ตอนรัน",
+  "scripts": {
+    "build": "esbuild index.mjs --minify --platform=node --target=node24 --format=esm --outfile=dist/index.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.2"
+  }
+}

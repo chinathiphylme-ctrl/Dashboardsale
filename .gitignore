@@ -1,3 +1,6 @@
 private/
 *.UNLOCKED.html
 dashboard-UNLOCKED*.html
+api/node_modules/
+api/dist/
+api/function.zip
