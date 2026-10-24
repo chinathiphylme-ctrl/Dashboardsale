@@ -482,13 +482,22 @@
     return false;
   }
   // data.json = {files: ข้อมูลที่ปิดชื่อ/เบอร์แล้ว (ทุกคนเห็น), enc: ข้อมูลจริงที่เข้ารหัส}
+  // data.json: ส่วนที่ทุกคนเห็นบีบอัดด้วย gzip (~39MB -> ~3MB) ไม่อย่างนั้น GitHub API ไม่รับ (422 input too large)
+  async function packFiles(files){ return b64e(await pipe(enc.encode(JSON.stringify(files)), new CompressionStream('gzip'))); }
+  async function publicFiles(pub){
+    if(!pub) return null;
+    if(pub.hylmePub === 2 && typeof pub.filesGz === 'string')
+      return JSON.parse(new TextDecoder().decode(await pipe(b64d(pub.filesGz), new DecompressionStream('gzip'))));
+    if(pub.hylmePub === 1 && Array.isArray(pub.files)) return pub.files;
+    return null;
+  }
   async function buildDataJson(files){
     if(!needKey()) return null;
     const env = fullEnv();
     // ปิดพร้อมข้อมูลตีคืนในหน้า เพื่อให้ได้ค่าปลอมชุดเดียวกับไฟล์เว็บ (รายชื่อคำที่ต้องลบในบันทึกเหมือนกัน)
     const masked = await maskData({files:files, returnDecisions:RETURN_REVIEW_DECISIONS, returnAdditions:RETURN_REVIEW_ADDITIONS}, V.key);
-    return {hylmePub:1, generated_at:new Date().toISOString(),
-      files: masked.files, enc: await encryptJSON({files:files}, V.key, env.salt, env.iter)};
+    return {hylmePub:2, generated_at:new Date().toISOString(),
+      filesGz: await packFiles(masked.files), enc: await encryptJSON({files:files}, V.key, env.salt, env.iter)};
   }
   async function buildBakeParts(files){
     if(!needKey()) return null;
@@ -503,10 +512,10 @@
     isLocked:isLocked, isPublic:isPublic, autoUnlock:autoUnlock, promptUnlock:promptUnlock, lock:lock,
     dialog:dialog, notice:notice,
     setDataFileEnc:env => { V.dataFileEnc = env || null; },
-    buildDataJson:buildDataJson, buildBakeParts:buildBakeParts, fillSlots:fillSlots,
+    buildDataJson:buildDataJson, buildBakeParts:buildBakeParts, fillSlots:fillSlots, publicFiles:publicFiles,
     // ใช้โดย tools/build.mjs และชุดทดสอบ
     _build:{deriveKey:deriveKey, encryptJSON:encryptJSON, decryptEnv:decryptEnv, maskData:maskData, makeMasker:makeMasker,
-      macKeyFor:macKeyFor, sha256:sha256, hmacFactory:hmacFactory, ITER:ITER}
+      macKeyFor:macKeyFor, sha256:sha256, hmacFactory:hmacFactory, packFiles:packFiles, ITER:ITER}
   };
 })();
 </script>
@@ -3905,7 +3914,9 @@ async function publishToGitHub(){
     if(btn){ btn.disabled = true; }
     const base = '/repos/' + encodeURIComponent(cfg.owner) + '/' + encodeURIComponent(cfg.repo);
     if(btn) btn.textContent = '⏳ อัปโหลดข้อมูล (1/4)';
-    const blob = await ghApi(cfg, base + '/git/blobs', 'POST', {content: ghB64(json), encoding: 'base64'});
+    // data.json เป็น ASCII ล้วน (base64 + คีย์อังกฤษ) -> ส่งแบบ utf-8 ได้เลย ไม่ต้องแปลง base64 ซ้ำให้โตขึ้นอีก 33%
+    const blobBody = /^[\x00-\x7f]*$/.test(json) ? {content: json, encoding: 'utf-8'} : {content: ghB64(json), encoding: 'base64'};
+    const blob = await ghApi(cfg, base + '/git/blobs', 'POST', blobBody);
     if(btn) btn.textContent = '⏳ อ่าน branch (2/4)';
     const ref = await ghApi(cfg, base + '/git/ref/heads/' + cfg.branch);
     const parent = ref.object.sha;
@@ -3934,10 +3945,11 @@ async function loadFromDataFile(){
   try{
     const res = await fetch(DATA_URL + '?t=' + Date.now(), {cache: 'no-store'});
     if(!res.ok) return false;
-    // data.json = {hylmePub, files: ข้อมูลที่ปิดชื่อ/เบอร์แล้ว, enc: ข้อมูลจริงที่เข้ารหัส} — รูปแบบอื่นไม่ใช้
+    // data.json = {hylmePub, filesGz: ข้อมูลที่ปิดชื่อ/เบอร์แล้ว (gzip), enc: ข้อมูลจริงที่เข้ารหัส} — รูปแบบอื่นไม่ใช้
     const pub = await res.json();
-    if(pub && pub.hylmePub === 1 && Array.isArray(pub.files) && pub.files.length){
-      uploadedFiles = pub.files;
+    const files = await HylmeVault.publicFiles(pub);
+    if(Array.isArray(files) && files.length){
+      uploadedFiles = files;
       HylmeVault.setDataFileEnc(pub.enc);
       return true;
     }
