@@ -345,6 +345,9 @@
       uploadedFiles = pub.files;
       if(pub.returnDecisions) RETURN_REVIEW_DECISIONS = pub.returnDecisions;
       if(pub.returnAdditions) RETURN_REVIEW_ADDITIONS = pub.returnAdditions;
+      // ต้นทุน Ads ที่บันทึกมากับรอบนี้ (ไม่มีข้อมูลลูกค้า) — รวมกับชุดในหน้าเว็บ/เครื่องนี้ แถวที่นำเข้าทีหลังชนะ
+      if(Array.isArray(pub.ads) && typeof adsMerge === 'function') adsRecords = adsMerge(adsRecords, pub.ads.filter(adsValid));
+      if(Array.isArray(pub.productAds) && typeof prodAdsMerge === 'function') productAdsRecords = prodAdsMerge(productAdsRecords, pub.productAds.filter(prodAdsValid));
       V.snapshot = {id:j.id, created_at:j.created_at};
       return true;
     }catch(e){
@@ -607,12 +610,16 @@
       const real = {files:uploadedFiles, returnDecisions:RETURN_REVIEW_DECISIONS, returnAdditions:RETURN_REVIEW_ADDITIONS};
       const masked = await maskChecked(real);
       if(!masked) return;
+      // ต้นทุน Ads (MKT cost / Ads รายสินค้า) ไปกับรอบนี้ด้วย — เดิมอยู่แค่ในเบราว์เซอร์ของคนที่นำเข้า คนอื่นไม่เห็น
+      if(typeof adsRecords !== 'undefined') masked.ads = adsRecords;
+      if(typeof productAdsRecords !== 'undefined') masked.productAds = productAdsRecords;
+      const adsDays = new Set((masked.ads || []).map(r => r.date)).size;
       const body = {source:'dashboard', public_gz:await gzipB64(masked), full_enc:await encryptJSON(real, V.key, env.salt, env.iter),
         file_count:uploadedFiles.length, order_count:uploadedFiles.reduce((n, f) => n + ((f.leadsRows || []).length), 0)};
       const mb = ((body.public_gz.length + body.full_enc.ct.length) / 1048576).toFixed(1);
       set(label);
       const ok = await dialog({title:'บันทึกลง Database', okText:'บันทึก',
-        message:'ออเดอร์ ' + body.order_count.toLocaleString('th-TH') + ' รายการ · ขนาด ~' + mb + ' MB'
+        message:'ออเดอร์ ' + body.order_count.toLocaleString('th-TH') + ' รายการ · ต้นทุน Ads ' + adsDays + ' วัน · ขนาด ~' + mb + ' MB'
           + '\n\nทุกคนเห็น: ยอดขายครบ แต่ชื่อ/เบอร์/ที่อยู่ลูกค้าเป็นค่าปลอม\nข้อมูลจริง: เข้ารหัสไว้ เปิดได้ด้วยรหัสผ่านเท่านั้น 🔒'});
       if(!ok) return;
       set('⏳ กำลังบันทึก…');
