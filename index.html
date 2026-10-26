@@ -7441,10 +7441,10 @@ const CH = {
 const MARKETPLACE_RE = /shopee|tiktok|tik tok|lazada|ช้อปปี้|ลาซาด้า/i;
 // ผู้ขายที่ใช้กับทุกออเดอร์ที่ช่องทางขาย = Telesales (3044)
 const TELESALES_MC_PERSON = 'Chitanuch Chitranondh';
-// (4) สินค้าพรีออเดอร์ (Olive Oil, GABA) -> สถานะ "OnHold (จอง)" + ใส่หมายเหตุ Pre-order
-//     ที่เหลือ (Daily Oils Blend / Gluta / Magnesium ฯลฯ) -> "Fulfill (อนุมัติ)"
-const PREORDER_SKUS = new Set(['HM-OL-01','HM-GB-01']);      // HM-OL-01 = Olive Oil, HM-GB-01 = GABA
-const PREORDER_NAME_KEYWORDS = ['olive','โอลีฟ','มะกอก','gaba','กาบา','กาบ้า']; // เผื่อกรณีไม่มี SKU ตรง ให้ดูจากชื่อสินค้า
+// (4) สินค้าพรีออเดอร์ (GABA) -> ใส่หมายเหตุ Pre-order (สถานะ Fulfill / OnHold มาจากที่ติ๊กในหน้าเว็บ)
+//     Olive Oil ไม่ใช่พรีออเดอร์แล้ว (26 ต.ค. 69) -> ไม่ใส่หมายเหตุ Pre-order
+const PREORDER_SKUS = new Set(['HM-GB-01']);                 // HM-GB-01 = GABA
+const PREORDER_NAME_KEYWORDS = ['gaba','กาบา','กาบ้า'];       // เผื่อกรณีไม่มี SKU ตรง ให้ดูจากชื่อสินค้า
 const STATUS_FULFILL = 'Fulfill (อนุมัติ)';
 const STATUS_ONHOLD  = 'OnHold (จอง)';
 
@@ -7503,10 +7503,10 @@ function isPreorderItem(p){
   return PREORDER_NAME_KEYWORDS.some(k => nm.includes(k.toLowerCase()));
 }
 // สถานะออเดอร์ MC: ผู้ใช้ติ๊กเลือกได้ว่า SKU ไหน "อนุมัติ (Fulfill)"
-// ค่าเริ่มต้น: ไม่ติ๊กสักตัว (ทุก SKU เริ่มที่ "จอง (OnHold)" เสมอ) ต้องมาติ๊กเลือกเองว่าตัวไหนอนุมัติแล้ว
+// ค่าเริ่มต้น: ติ๊กทุกตัว (ทุก SKU เริ่มที่ "อนุมัติ (Fulfill)") — ตัวไหนยังจองอยู่ให้เอาติ๊กออกเอง (26 ต.ค. 69)
 // mcApproval[SKU] = true/false เป็น override ที่ผู้ใช้กด (ถ้าไม่มี key ใช้ค่าเริ่มต้น)
 function skuOf(p){ return String(p['Product Code'] || '').trim().toUpperCase(); }
-function defaultApproved(p){ return false; }
+function defaultApproved(p){ return true; }
 function isSkuApproved(p){
   const sku = skuOf(p);
   if(mcApproval && Object.prototype.hasOwnProperty.call(mcApproval, sku)) return mcApproval[sku];
