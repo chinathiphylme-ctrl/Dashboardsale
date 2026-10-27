@@ -304,6 +304,7 @@
   function fillSlots(html, parts){
     html = fillSlot(html, 'let RETURN_REVIEW_DECISIONS', '__RR_DECISIONS_SLOT__', parts.returnDecisions);
     html = fillSlot(html, 'let RETURN_REVIEW_ADDITIONS', '__RR_ADDITIONS_SLOT__', parts.returnAdditions);
+    if(parts.orderEdits !== undefined) html = fillSlot(html, 'let ORDER_EDITS', '__ORDER_EDITS_SLOT__', parts.orderEdits || {edits:{}, log:[]});
     return fillSlot(html, 'const HYLME_FULL', '__HYLME_FULL_SLOT__', parts.full);
   }
 
@@ -345,6 +346,7 @@
       uploadedFiles = pub.files;
       if(pub.returnDecisions) RETURN_REVIEW_DECISIONS = pub.returnDecisions;
       if(pub.returnAdditions) RETURN_REVIEW_ADDITIONS = pub.returnAdditions;
+      if(pub.orderEdits && typeof ORDER_EDITS !== 'undefined') ORDER_EDITS = pub.orderEdits;
       // ต้นทุน Ads ที่บันทึกมากับรอบนี้ (ไม่มีข้อมูลลูกค้า) — รวมกับชุดในหน้าเว็บ/เครื่องนี้ แถวที่นำเข้าทีหลังชนะ
       if(Array.isArray(pub.ads) && typeof adsMerge === 'function') adsRecords = adsMerge(adsRecords, pub.ads.filter(adsValid));
       if(Array.isArray(pub.productAds) && typeof prodAdsMerge === 'function') productAdsRecords = prodAdsMerge(productAdsRecords, pub.productAds.filter(prodAdsValid));
@@ -371,6 +373,7 @@
     }
     RETURN_REVIEW_DECISIONS = full.returnDecisions;
     RETURN_REVIEW_ADDITIONS = full.returnAdditions;
+    if(full.orderEdits && typeof ORDER_EDITS !== 'undefined') ORDER_EDITS = full.orderEdits;
     uploadedFiles = files;
     V.key = key; V.unlocked = true;
   }
@@ -607,9 +610,15 @@
       if(btn) btn.disabled = true;
       set('⏳ ปิดชื่อ/เบอร์ + ตรวจข้อมูลหลุด');
       const env = fullEnv();
-      const real = {files:uploadedFiles, returnDecisions:RETURN_REVIEW_DECISIONS, returnAdditions:RETURN_REVIEW_ADDITIONS};
-      const masked = await maskChecked(real);
+      // ทะเบียนปรับยอด: การตัดสิน (หัก / คงยอด) ที่กดในเบราว์เซอร์นี้ไปกับรอบนี้ด้วย — เดิมอยู่แค่เครื่องที่กด (การตัดสินที่ใหม่กว่าชนะ)
+      const decisions = Object.assign({}, RETURN_REVIEW_DECISIONS || {});
+      if(typeof cxlDecisions === 'function') Object.entries(cxlDecisions() || {}).forEach(([id, d]) => { const c = decisions[id]; if(d && (!c || String(c.at || '') < String(d.at || ''))) decisions[id] = d; });
+      const base = {files:uploadedFiles, returnDecisions:decisions, returnAdditions:RETURN_REVIEW_ADDITIONS};
+      const masked = await maskChecked(base);
       if(!masked) return;
+      // การแก้ไขออเดอร์: ข้อมูลจริงเก็บพร้อมเหตุผล · ส่วนที่ทุกคนเห็นไม่มีเหตุผล (อาจมีชื่อลูกค้า)
+      const real = (typeof ORDER_EDITS !== 'undefined') ? Object.assign({}, base, {orderEdits:ORDER_EDITS}) : base;
+      if(typeof orderEditsPublic === 'function') masked.orderEdits = orderEditsPublic();
       // ต้นทุน Ads (MKT cost / Ads รายสินค้า) ไปกับรอบนี้ด้วย — เดิมอยู่แค่ในเบราว์เซอร์ของคนที่นำเข้า คนอื่นไม่เห็น
       if(typeof adsRecords !== 'undefined') masked.ads = adsRecords;
       if(typeof productAdsRecords !== 'undefined') masked.productAds = productAdsRecords;
@@ -3652,6 +3661,7 @@ body.page-compare #sideOpenCal, body.page-compare #teamSide .side-picklist{ disp
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:14px;" id="orderEditCard"></div>
     <div class="card" style="margin-bottom:14px;" id="mcCard">
       <div class="card-head">
         <div><h3>Export ใบปะหน้าส่งของ (MC Template)</h3><div class="card-sub">กรอกข้อมูลออเดอร์ในช่วงที่เลือกอยู่ (รายวัน/รายสัปดาห์/รายเดือนตามแท็บด้านบน — รอบวันนับแบบเที่ยงคืนถึงเที่ยงคืนตามปฏิทิน) ลงในไฟล์ template MC ให้อัตโนมัติ พร้อมอัปโหลดเข้า MyCloud ได้เลยโดยไม่ต้องกรอกเอง — ติ๊กเลือกได้ว่าจะ export ของผู้ดูแลคนไหนบ้าง</div></div>
@@ -6110,6 +6120,23 @@ function mergeReturnReviewAdditions(){
   });
 }
 
+/* ==================== แก้ไขออเดอร์ด้วยมือ (owner 27 ต.ค. 69) ====================
+   แก้ "วิธีชำระเงิน" และ "วันที่นับยอด" ของออเดอร์ที่ข้อมูลต้นทางผิด (ลงเป็น COD แต่ลูกค้าโอน · โอนวันที่ 1 แต่ทีมกดยืนยันวันที่ 2)
+   เก็บตามเลขออเดอร์ (Lead ID) ไปกับข้อมูลทุกรอบใน database — อัปไฟล์ใหม่ทับกี่ครั้งก็ยังใช้ · ไฟล์ต้นทางไม่ถูกแก้
+   CRM_V3 รันโค้ดหน้านี้กับข้อมูลรอบเดียวกัน จึงได้ยอด/วันที่/วิธีชำระตามที่แก้ด้วย
+   edits[id] = {pay, date, reason, at} · log = ประวัติทุกครั้ง · คนที่ไม่ได้ใส่รหัสเห็นการแก้แต่ไม่เห็นเหตุผล */
+let ORDER_EDITS = {"edits":{},"log":[]}; /*__ORDER_EDITS_SLOT__*/
+const OE_PAYS = ['COD (เก็บเงินปลายทาง)', 'โอนเงิน'];
+function orderEditOf(id){ const e = ORDER_EDITS && ORDER_EDITS.edits; return (e && id != null && e[String(id)]) || null; }
+function orderDateOf(lead){ const e = orderEditOf(lead && lead['Lead ID']); return (e && e.date) || bizDateStr(lead['Lead Purchase Date']); }
+function orderPayEdit(lead){ const e = orderEditOf(lead && lead['Lead ID']); return e && OE_PAYS.includes(e.pay) ? e.pay : null; }
+function orderEditsPublic(){
+  const src = ORDER_EDITS || {}, out = { edits:{}, log:[] };
+  Object.entries(src.edits || {}).forEach(([k, e]) => { out.edits[k] = { pay:e.pay || null, date:e.date || null, count:typeof e.count === 'boolean' ? e.count : null, at:e.at }; });
+  out.log = (src.log || []).map(x => ({ id:x.id, action:x.action, pay:x.pay || null, date:x.date || null, count:typeof x.count === 'boolean' ? x.count : null, at:x.at }));
+  return out;
+}
+
 function mergeReturnReviewDecisions(){
   mergeReturnReviewAdditions();
   const reg = cancelReg(true);
@@ -6692,7 +6719,7 @@ function applyCancelRegistry(leads){
       if(c.length === 1){ hit = c[0]; how = 'วันที่+ยอดเงิน'; }
       else if(c.length > 1){ out.ambiguous.push(rec); return; }
     }
-    if(hit && operatorByLead.get(String(hit['Lead ID']))?.action === 'keep') return;
+    if(hit && (operatorByLead.get(String(hit['Lead ID']))?.action === 'keep' || orderEditOf(hit['Lead ID'])?.count === true)) return;
     if(hit){
       // ไฟล์ยกเลิกของ Hylme ระบุ "ยอดเงินจริง" มาโดยตรง (รวม VAT) — ใช้ยอดนี้เป็นยอดที่หัก
       // เพื่อให้ Net = Gross - ยอดยกเลิกตามไฟล์แบบตรงตัว แม้ Lead Value จะเคยถูก reconcile ก่อนหน้านี้
@@ -6709,7 +6736,7 @@ function applyCancelRegistry(leads){
   // Explicit manual decisions take effect after the automated registry, so an order cannot
   // be subtracted twice even if its MyCloud cancellation was already imported.
   operatorByLead.forEach((dec, leadId) => {
-    if(dec.action !== 'deduct') return;
+    if(dec.action !== 'deduct' || orderEditOf(leadId)?.count === true) return;
     const hit = X.byLeadId.get(leadId);
     if(!hit) return;
     if(hit.__cancelled){ hit.__manualDecision = dec; return; }
@@ -6720,6 +6747,17 @@ function applyCancelRegistry(leads){
     hit.__cancelGross = Math.round(withVat(hit['Lead Value'])*100)/100;
     hit.__cancelled = rec; hit.__cancelHow = 'เลขออเดอร์ตามผลตรวจสอบของผู้ดูแล';
     hit.__manualDecision = dec;
+    out.matched.push(rec);
+  });
+  // แก้ไขออเดอร์ "ไม่นับยอด" (เช่น บิลส่งใหม่ ที่ยอดนับที่บิลเดิมแล้ว)
+  Object.entries((ORDER_EDITS && ORDER_EDITS.edits) || {}).forEach(([id, e]) => {
+    if(e.count !== false) return;
+    const hit = X.byLeadId.get(String(id));
+    if(!hit || hit.__cancelled) return;
+    const rec = { key:'EDIT-'+id, shopNo:id, mcNo:'', date:hit.__date, gross:withVat(hit['Lead Value']), status:'ไม่นับยอด — แก้ไขออเดอร์',
+      chan:hit['Lead Intro']||'ไม่ระบุ', source:'order-edit', file:'แก้ไขออเดอร์', reason:e.reason||'', replacement:'', at:e.at };
+    hit.__cancelGross = Math.round(withVat(hit['Lead Value'])*100)/100;
+    hit.__cancelled = rec; hit.__cancelHow = 'แก้ไขออเดอร์ (ไม่นับยอด)';
     out.matched.push(rec);
   });
   return out;
@@ -7395,6 +7433,7 @@ function isMarketplaceOrder(lead){
 // ลูกค้าโอนเงินแล้วแต่ทำออเดอร์ผิดเป็น COD — ผู้ใช้ยืนยันให้นับเป็นโอนเงิน (ตรวจออเดอร์ ก.ย.69 เมื่อ 19 ต.ค. 69)
 const PAYMENT_OVERRIDES = {'PK-6157':'โอนเงิน','PK-6202':'โอนเงิน','PK-6347':'โอนเงิน','PK-8122':'โอนเงิน'};
 function paymentMethodOf(lead){
+  const edited = orderPayEdit(lead); if(edited) return edited;
   if(isMarketplaceOrder(lead)) return PAYMENT_MARKETPLACE;
   const fixed = lead && PAYMENT_OVERRIDES[lead['Lead ID']];
   if(fixed) return fixed;
@@ -7600,7 +7639,7 @@ function buildMcRows(leads, products, contactAccountByLead){
     // ออเดอร์มาร์เก็ตเพลสที่อ่านกลับมาจาก MyCloud — ไม่ต้อง export กลับเข้า MC อีก
     // (ไม่มี SKU และชื่อ/เบอร์/ที่อยู่ถูกปิดบัง) จึงข้ามเงียบ ๆ ไม่ต้องขึ้นในรายการ "ข้าม"
     if(/MyCloud/i.test(String(lead['Source'] || ''))) return;
-    const pm = paymentMethod(lead['Lead Intro']);
+    const pm = orderPayEdit(lead) || paymentMethod(lead['Lead Intro']);
     if(pm === 'ไม่ระบุ'){
       skipped.push({ leadId, name: lead['Lead Name'], reason: 'ไม่มีคำว่า "COD" หรือ "โอน" ใน Lead Intro — ไม่ทราบวิธีชำระเงินที่แน่ชัด' });
       return;
@@ -8695,7 +8734,7 @@ function buildPosRows(leads, products){
     const id = lead['Lead ID'];
     const items = prodByLead[id] || [];
     if(items.length === 0) return;   // ไม่มีสินค้าที่มี SKU -> ข้าม (เป็นบรรทัด POS ไม่ได้)
-    const pm = paymentMethod(lead['Lead Intro']);
+    const pm = orderPayEdit(lead) || paymentMethod(lead['Lead Intro']);
     const payType = pm === 'COD (เก็บเงินปลายทาง)' ? 'COD' : (pm === 'โอนเงิน' ? 'โอน' : 'ไม่ระบุ');
 
     // ---- คำนวณต่อบรรทัด โดยยึด "ราคาที่ลูกค้าจ่ายจริง" (รวม VAT, เลขกลม เช่น 1290/490/300) ----
@@ -9441,13 +9480,13 @@ function recomputeDataset(options = {}){
   const leadById = new Map(leads.map(r => [r['Lead ID'], r]));
   products.forEach(p => {
     const lead = leadById.get(p['Lead ID']);
-    p.__date = lead ? bizDateStr(lead['Lead Purchase Date']) : null;   // รอบวันทำงาน (ตัด 01:00)
+    p.__date = lead ? orderDateOf(lead) : null;   // รอบวันทำงาน (ตัด 01:00)
     p.__short = shortProductName(p['Product Name']);
     p.__promo = promoLabel(p);
   });
 
   // 4) assign purchase date to leads (skip leads with unparsable date)
-  leads.forEach(r => { r.__date = bizDateStr(r['Lead Purchase Date']); });   // รอบวันทำงาน (ตัด 01:00)
+  leads.forEach(r => { r.__date = orderDateOf(r); });   // รอบวันทำงาน (ตัด 01:00)
 
   /* ---- 4a) กันยอดซ้ำ "ข้ามระบบ" -------------------------------------------------------
      การ dedupe ด้านบนใช้ Lead ID อย่างเดียว แต่ออเดอร์ใบเดียวกันที่มาจากคนละระบบจะมี
@@ -12661,6 +12700,87 @@ function renderReturnCard(){
   });
 })();
 
+/* ---- การ์ด "แก้ไขออเดอร์" ในแผงหลังบ้าน (owner 27 ต.ค. 69) ---- */
+let oeSel = null;
+function oeEsc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function oeFind(q){
+  q = String(q || '').trim().toUpperCase(); if(!q || !DATA) return null;
+  if(/^\d+$/.test(q)) q = 'PK-' + q;
+  return (DATA.transactionLeads || []).find(r => String(r['Lead ID']).toUpperCase() === q) || null;
+}
+function oeSourcePay(lead){ if(isMarketplaceOrder(lead)) return PAYMENT_MARKETPLACE; return PAYMENT_OVERRIDES[lead['Lead ID']] || paymentMethod(lead['Lead Intro']); }
+function oeDM(s){ return s ? new Date(s + 'T00:00:00').toLocaleDateString('th-TH', {day:'numeric', month:'short', year:'2-digit'}) : '—'; }
+function oeDesc(e){ const a = []; if(e.count === true) a.push('นับเป็นยอดขาย'); if(e.count === false) a.push('ไม่นับยอด'); if(e.pay) a.push('วิธีชำระ → ' + e.pay); if(e.date) a.push('นับยอดวันที่ ' + oeDM(e.date)); return a.join(' · ') || '—'; }
+function oeRecompute(){ if(DATA){ if(!recomputeDataset()){ state.team = 'all'; state.person = ''; recomputeDataset(); } renderAll(); renderBackendCards(true); } }
+async function oeCommit(id, ed, reason){
+  if(HylmeVault.isLocked() && !(await HylmeVault.promptUnlock('ใส่รหัสผ่านเพื่อแก้ไขออเดอร์และบันทึกลง database'))) return;
+  ORDER_EDITS = ORDER_EDITS || {}; ORDER_EDITS.edits = ORDER_EDITS.edits || {}; ORDER_EDITS.log = ORDER_EDITS.log || [];
+  const at = new Date().toISOString();
+  const any = !!(ed.pay || ed.date || typeof ed.count === 'boolean');
+  if(any) ORDER_EDITS.edits[id] = Object.assign({}, ed, { reason, at });
+  else delete ORDER_EDITS.edits[id];
+  ORDER_EDITS.log.push({ id, action:any ? 'set' : 'clear', pay:ed.pay || null, date:ed.date || null, count:typeof ed.count === 'boolean' ? ed.count : null, reason, at });
+  oeSel = id; oeRecompute();
+  if(!HylmeVault.apiMode()){ HylmeVault.notice('แก้ในหน้านี้แล้ว', 'หน้านี้ไม่ได้ต่อ database — การแก้อยู่ในหน้านี้เท่านั้น'); return; }
+  await HylmeVault.publishFromPage();
+}
+function renderOrderEditCard(){
+  const host = document.getElementById('orderEditCard'); if(!host) return;
+  const edits = Object.entries((ORDER_EDITS && ORDER_EDITS.edits) || {}).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)));
+  const lead = oeSel ? oeFind(oeSel) : null;
+  let box = '';
+  if(oeSel && !lead) box = '<div class="card-sub" style="margin-top:10px;">ไม่พบออเดอร์ ' + oeEsc(oeSel) + ' ในข้อมูลชุดนี้</div>';
+  else if(lead){
+    const id = lead['Lead ID'], e = orderEditOf(id) || {}, srcDate = bizDateStr(lead['Lead Purchase Date']), srcPay = oeSourcePay(lead);
+    const curPay = paymentMethodOf(lead), payEditable = OE_PAYS.includes(srcPay) || !!e.pay;
+    box = '<div style="margin-top:12px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface-1);">'
+      + '<div style="font-weight:700;">' + oeEsc(id) + ' · ' + oeEsc(lead['Lead Name'] || '') + ' · ' + fmtBaht(withVat(lead['Lead Value']))
+      + (lead.__cancelled ? ' · <span style="color:var(--critical)">ไม่นับยอด (' + oeEsc(lead.__cancelHow || 'ยกเลิก') + ')</span>' : '') + '</div>'
+      + '<div class="card-sub">ในไฟล์: สั่ง ' + oeEsc(String(lead['Lead Purchase Date'] || '—')) + ' → นับยอดวันที่ ' + oeDM(srcDate) + ' · วิธีชำระ ' + oeEsc(srcPay)
+      + (e.at ? ' · <b>แก้ไว้แล้ว: ' + oeEsc(oeDesc(e)) + '</b>' : '') + '</div>'
+      + (payEditable ? '' : '<div class="card-sub">ออเดอร์ ' + oeEsc(srcPay) + ' — แก้ได้เฉพาะวันที่นับยอด</div>')
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
+      + '<label style="font-size:12px;font-weight:600;">นับยอด<br><select id="oeCount"><option value="yes"' + (lead.__cancelled ? '' : ' selected') + '>นับเป็นยอดขาย</option><option value="no"' + (lead.__cancelled ? ' selected' : '') + '>ไม่นับยอด</option></select></label>'
+      + '<label style="font-size:12px;font-weight:600;">วันที่นับยอด<br><input type="date" id="oeDate" value="' + oeEsc(lead.__date || srcDate) + '"></label>'
+      + (payEditable ? '<label style="font-size:12px;font-weight:600;">วิธีชำระเงิน<br><select id="oePay">' + OE_PAYS.map(p => '<option' + (p === curPay ? ' selected' : '') + '>' + oeEsc(p) + '</option>').join('') + '</select></label>' : '')
+      + '<label style="font-size:12px;font-weight:600;flex:1;min-width:220px;">เหตุผล (ต้องใส่)<br><input id="oeReason" style="width:100%" placeholder="เช่น ลูกค้าโอนวันที่ 1 แต่กดยืนยันวันที่ 2"></label>'
+      + '<button class="btn primary" id="oeSave">บันทึก + ส่งขึ้น Database</button>'
+      + (e.at ? '<button class="btn" id="oeUndo">ยกเลิกการแก้ของออเดอร์นี้</button>' : '')
+      + '</div></div>';
+  }
+  const locked = HylmeVault.isLocked();
+  const list = edits.length
+    ? '<table class="order-table" style="margin-top:8px;"><thead><tr><th>ออเดอร์</th><th>แก้อะไร</th><th>เหตุผล</th><th>เมื่อ</th></tr></thead><tbody>'
+      + edits.map(([id, e]) => '<tr><td><a href="#" data-oe="' + oeEsc(id) + '">' + oeEsc(id) + '</a></td><td>' + oeEsc(oeDesc(e)) + '</td><td>'
+        + oeEsc(e.reason || (locked ? '🔒 ใส่รหัสเพื่อดู' : '—')) + '</td><td>' + oeEsc(new Date(e.at).toLocaleString('th-TH', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})) + '</td></tr>').join('')
+      + '</tbody></table>'
+    : '<div class="card-sub" style="margin-top:6px;">ยังไม่มีออเดอร์ที่แก้</div>';
+  host.innerHTML = '<div class="card-head"><div><h3>แก้ไขออเดอร์ — วิธีชำระเงิน / วันที่นับยอด</h3>'
+    + '<div class="card-sub">ใช้เมื่อข้อมูลในไฟล์ผิด เช่น ลงเป็น COD แต่ลูกค้าโอน · ลูกค้าโอนวันที่ 1 แต่ทีมกดยืนยันวันที่ 2 — ไฟล์ต้นทางไม่ถูกแก้ · การแก้เก็บตามเลขออเดอร์และไปกับข้อมูลทุกรอบ (อัปไฟล์ใหม่ก็ยังอยู่) · CRM_V3 ใช้ตามในการอัปเดตรอบถัดไป</div></div></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><input id="oeQ" placeholder="เลขออเดอร์ เช่น PK-10127" value="' + oeEsc(oeSel || '') + '" style="max-width:240px;"><button class="btn" id="oeGo">ค้นหา</button></div>'
+    + box + '<div style="margin-top:14px;font-weight:700;font-size:13px;">ออเดอร์ที่แก้แล้ว (' + edits.length + ')</div>' + list;
+  const q = document.getElementById('oeQ'), go = () => { oeSel = q.value.trim() || null; renderOrderEditCard(); };
+  document.getElementById('oeGo').onclick = go;
+  q.onkeydown = ev => { if(ev.key === 'Enter') go(); };
+  host.querySelectorAll('[data-oe]').forEach(a => a.onclick = ev => { ev.preventDefault(); oeSel = a.dataset.oe; renderOrderEditCard(); });
+  const save = document.getElementById('oeSave');
+  if(save && lead) save.onclick = () => {
+    const id = lead['Lead ID'], srcDate = bizDateStr(lead['Lead Purchase Date']), srcPay = oeSourcePay(lead);
+    const reason = document.getElementById('oeReason').value.trim(), d = document.getElementById('oeDate').value, ps = document.getElementById('oePay');
+    if(!reason){ HylmeVault.notice('ใส่เหตุผลก่อน', 'บอกสั้น ๆ ว่าแก้เพราะอะไร — เก็บไว้ในประวัติการแก้'); return; }
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){ HylmeVault.notice('วันที่ไม่ถูกต้อง', 'เลือกวันที่นับยอดใหม่'); return; }
+    const ed = {}, cs = document.getElementById('oeCount'), ex = orderEditOf(id) || {};
+    const srcCancelled = ex.count === true ? true : ex.count === false ? false : !!lead.__cancelled;   // สถานะตามข้อมูล (ก่อนแก้)
+    if(cs && cs.value === 'yes' && srcCancelled) ed.count = true;
+    if(cs && cs.value === 'no' && !srcCancelled) ed.count = false;
+    if(d !== srcDate) ed.date = d;
+    if(ps && ps.value !== srcPay) ed.pay = ps.value;
+    oeCommit(id, ed, reason);
+  };
+  const undo = document.getElementById('oeUndo');
+  if(undo && lead) undo.onclick = () => oeCommit(lead['Lead ID'], {}, 'ยกเลิกการแก้');
+}
+
 function renderAll(){
   renderTeamBar();
   renderProductFocusBar();
@@ -12678,7 +12798,7 @@ function renderBackendCards(force){
   const body = document.getElementById('backendBody');
   if(!force && body && body.classList.contains('collapsed')){ backendDirty = true; return; }
   backendDirty = false;
-  renderCancelCard(); cxlRender(); renderReportCard(); renderMcCard(); renderContactCard(); renderPosCard(); renderRangeExport(); renderPointCard();
+  renderCancelCard(); cxlRender(); renderOrderEditCard(); renderReportCard(); renderMcCard(); renderContactCard(); renderPosCard(); renderRangeExport(); renderPointCard();
 }
 
 // ---- การ์ดสรุปยอดขายส่งทีม: ปุ่มคัดลอก + ช่อง Focus Set (จำค่าไว้ในเบราว์เซอร์เครื่องนี้) ----

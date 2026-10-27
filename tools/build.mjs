@@ -33,7 +33,18 @@ const SLOTS = {
   returnDecisions: /^let RETURN_REVIEW_DECISIONS = (.*); \/\*__RR_DECISIONS_SLOT__\*\/$/m,
   returnAdditions: /^let RETURN_REVIEW_ADDITIONS = (.*); \/\*__RR_ADDITIONS_SLOT__\*\/$/m,
   full:            /^const HYLME_FULL = (.*); \/\*__HYLME_FULL_SLOT__\*\/$/m,
+  orderEdits:      /^let ORDER_EDITS = (.*); \/\*__ORDER_EDITS_SLOT__\*\/\r?$/m,
 };
+// แก้ไขออเดอร์ (27 ต.ค. 69): ไฟล์รุ่นก่อนไม่มีช่องนี้ -> ว่าง · ส่วนที่ทุกคนเห็นไม่มีเหตุผล (อาจมีชื่อลูกค้า)
+const EMPTY_EDITS = { edits: {}, log: [] };
+function readEdits(html) { return SLOTS.orderEdits.test(html) ? readSlot(html, 'orderEdits') : EMPTY_EDITS; }
+function publicEdits(oe) {
+  const out = { edits: {}, log: [] };
+  const cnt = (v) => (typeof v === 'boolean' ? v : null);
+  for (const [k, e] of Object.entries((oe && oe.edits) || {})) out.edits[k] = { pay: e.pay || null, date: e.date || null, count: cnt(e.count), at: e.at };
+  out.log = ((oe && oe.log) || []).map((x) => ({ id: x.id, action: x.action, pay: x.pay || null, date: x.date || null, count: cnt(x.count), at: x.at }));
+  return out;
+}
 function readSlot(html, name) {
   const m = html.match(SLOTS[name]);
   if (!m) throw new Error('ไม่พบช่องข้อมูล ' + name + ' ในไฟล์');
@@ -221,16 +232,17 @@ async function build(args) {
   if (existsSync(OUT)) { try { oldEnv = readSlot(await readFile(OUT, 'utf8'), 'full'); } catch {} }
   const v = await openVault(cfg, B, oldEnv);
 
-  const real = from ? await readFrom(from, B, v.key, src)
+  const base = from ? await readFrom(from, B, v.key, src)
     : { files: readSlot(src, 'files'), returnDecisions: readSlot(src, 'returnDecisions'), returnAdditions: readSlot(src, 'returnAdditions') };
+  const real = { ...base, orderEdits: readEdits(src) };
   const t0 = Date.now();
   const masker = B.makeMasker(await B.macKeyFor(v.key));
-  const masked = masker.walk(real);
+  const masked = { ...masker.walk(base), orderEdits: publicEdits(real.orderEdits) };
 
   // หน้าเว็บ: ไม่มีข้อมูลฝัง (โหลดจาก database) — HYLME_FULL เหลือแค่ salt / iter / ที่อยู่ database
   const page = { hylmeEnc: 1, kdf: 'PBKDF2-SHA256', iter: v.iter, salt: v.salt, api: cfg.api + '/' };
   let html = writeEmbedded(src, []);
-  html = HV.fillSlots(html, { returnDecisions: masked.returnDecisions, returnAdditions: masked.returnAdditions, full: page });
+  html = HV.fillSlots(html, { returnDecisions: masked.returnDecisions, returnAdditions: masked.returnAdditions, full: page, orderEdits: EMPTY_EDITS });
 
   const r = scanLeaks(html + '\n' + JSON.stringify(masked), masked, real, masker.fakes());
   console.log(`ตรวจหาข้อมูลหลุด: เบอร์จริง ${r.realPhones} เบอร์, ชื่อจริง ${r.realNames} ชื่อ`);
@@ -277,7 +289,8 @@ async function unlock(file) {
     try { real = JSON.parse(await B.decryptEnv(env, key)); } catch { throw new Error('รหัสผ่านไม่ถูกต้อง'); }
   }
   let out = writeEmbedded(html, real.files);
-  out = HV.fillSlots(out, { returnDecisions: real.returnDecisions, returnAdditions: real.returnAdditions, full: null });
+  out = HV.fillSlots(out, { returnDecisions: real.returnDecisions, returnAdditions: real.returnAdditions, full: null,
+    orderEdits: SLOTS.orderEdits.test(out) ? (real.orderEdits || EMPTY_EDITS) : undefined });
   if (existsSync(SRC)) {   // กันทับไฟล์ต้นฉบับที่อาจแก้ไว้ — สำรองไว้ก่อน
     const bak = path.join(ROOT, 'private', 'backup', 'dashboard-' + new Date().toISOString().replace(/[:.]/g, '-') + '.html');
     await mkdir(path.dirname(bak), { recursive: true });
