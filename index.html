@@ -7258,6 +7258,18 @@ function canonPerson(name){
   if(!k) return 'ไม่ระบุ';
   return PERSON_ALIASES[k.toLowerCase()] || k;
 }
+// ชื่อพนักงานที่แสดงในแดชบอร์ด (owner 28 ต.ค. 69) — ใช้แสดงผล / ตัวกรอง / ตารางรายคนเท่านั้น
+// ทีม, Export MC/POS และไฟล์ contact ยังใช้ชื่อในระบบ (canonPerson / ชื่อดิบ) เหมือนเดิม
+const PERSON_DISPLAY = {
+  'จิตรานนท์ ชิตานุช'    : 'Chitanuch',
+  'ชิตานุช จิตรานนท์'    : 'Chitanuch',   // คนเดียวกัน (สลับชื่อ-นามสกุล)
+  'chitanuch c'         : 'Chitanuch',
+  'chinathiphylme'      : 'Chinathip',
+  'yodsaenchan wanvisa' : 'Wanvisa',
+  'วันวิสา ยอดแสงจันทร์'  : 'Wanvisa',     // คนเดียวกัน (ชื่อภาษาไทย)
+  'กานต์ปริยา ช่างเกิด'  : 'Kanpriya',
+};
+function personLabel(name){ const p = canonPerson(name); return PERSON_DISPLAY[p.toLowerCase()] || p; }
 const TEAM3 = [
   { key:'admin', name:'Admin', sub:'Facebook + Instagram', color:'#1877F2',
     channels:['Facebook Hylme','Facebook Hylme ครบจบเรื่องไขมัน','Facebook Hylme ครบจบเรื่องนอน','Facebook Hylme ครบจบเรื่องผิว','Instagram'],
@@ -8201,7 +8213,7 @@ function buildContactRows(leads, products, contactAccountByLead){
     c.orders += 1;
     c.amount += withVat(lead['Lead Value']);
     c.last = lead.__date;
-    c.owner = canonPerson(lead['Current User Name']);  // ผู้ดูแลของออเดอร์ล่าสุด (ใช้โชว์ในตารางพรีวิว)
+    c.owner = personLabel(lead['Current User Name']);  // ผู้ดูแลของออเดอร์ล่าสุด (ใช้โชว์ในตารางพรีวิว)
     c.source = contactSource(channelLabel(lead));      // ช่องทางของออเดอร์ล่าสุด (ตัดคำว่า Facebook ออก)
     c.leadIds.push(id);
     (itemsByLead.get(id) || []).forEach(p => c.products.add(p.__short || shortProductName(p['Product Name'])));
@@ -9654,7 +9666,7 @@ function recomputeDataset(options = {}){
   /* ---- 4b) ตัวกรองทีม / รายคน (Looker-style) ------------------------------------------
      สรุปยอดของ "ทุกทีม" ไว้ก่อนกรอง (ใช้โชว์บนแถบเลือกทีม) แล้วค่อยตัดข้อมูลให้เหลือเฉพาะ
      ทีม/คนที่เลือก - การ์ดทุกใบด้านล่างจึงกรองตามอัตโนมัติโดยไม่ต้องแก้ทีละใบ                */
-  validLeads.forEach(r => { r.__team = teamOfLead(r); r.__person = canonPerson(r['Current User Name']); });
+  validLeads.forEach(r => { r.__team = teamOfLead(r); r.__person = personLabel(r['Current User Name']); });
   /* ---- หักออเดอร์ที่ถูกยกเลิกออกจากทุกยอด ----
      ทำตรงนี้ก่อนคำนวณอะไรทั้งสิ้น การ์ดทุกใบ/ทุกช่วงเวลาจึงเป็น "ยอดสุทธิ" อัตโนมัติ
      รายการที่ถูกหักเก็บไว้ใน DATA.cancelledLeads เพื่อเอาไปโชว์ในการ์ดสรุปแยก        */
@@ -9830,7 +9842,7 @@ function recomputeDataset(options = {}){
     ordered.forEach((k,i) => { map[k] = i < CATEGORICAL.length ? CATEGORICAL[i] : extraColor(i - CATEGORICAL.length); });
     return map;
   })();
-  repColorMap = rankColorMap(validLeads, r => String(r['Current User Name']||'ไม่ระบุ').trim() || 'ไม่ระบุ', r => withVat(r['Lead Value']));
+  repColorMap = rankColorMap(validLeads, r => personLabel(r['Current User Name']), r => withVat(r['Lead Value']));
 
   // รวมข้อมูลสถิติ Pancake (Conversion รายคน) — key = ช่วงวัน + เพจ + ผู้ใช้ (ไฟล์ทีหลังทับไฟล์ก่อน)
   const convStatMap = new Map();
@@ -9879,7 +9891,7 @@ function recomputeDataset(options = {}){
     periodProducts.forEach(p => { (prodByLead[p['Lead ID']] = prodByLead[p['Lead ID']] || []).push(p); });
     const orderList = periodLeads.slice().sort((a,b)=> String(a['Create Datetime']).localeCompare(String(b['Create Datetime']))).map(r => {
       const items = (prodByLead[r['Lead ID']]||[]).map(p => `${p.__short} x${Math.round(Number(p['Quantity'])||0)}`).join(', ');
-      return { id:r['Lead ID'], name:r['Lead Name'], owner: String(r['Current User Name']||'ไม่ระบุ').trim() || 'ไม่ระบุ', date:r.__date, items: items||'-', value: Math.round(withVat(r['Lead Value'])*100)/100 };
+      return { id:r['Lead ID'], name:r['Lead Name'], owner: personLabel(r['Current User Name']), date:r.__date, items: items||'-', value: Math.round(withVat(r['Lead Value'])*100)/100 };
     });
 
     const paymentAgg = {};
@@ -9981,7 +9993,7 @@ function recomputeDataset(options = {}){
     const repAgg = {};
     const leadRepOf = {};
     periodLeads.forEach(r => {
-      const key = String(r['Current User Name']||'ไม่ระบุ').trim() || 'ไม่ระบุ';
+      const key = personLabel(r['Current User Name']);
       leadRepOf[r['Lead ID']] = key;
       if(!repAgg[key]) repAgg[key] = {rep:key, orders:0, sales:0, units:0, skus:new Set()};
       repAgg[key].orders += 1;
@@ -10052,7 +10064,7 @@ function recomputeDataset(options = {}){
       const ds = r.dates || [];
       // ไฟล์ช่วงหลายวัน: นับเฉพาะเมื่อ "ทุกวัน" อยู่ในช่วงที่เลือก (กันนับครึ่ง ๆ)
       if(!ds.length || !ds.every(d => periodDateSet.has(d))){ if(ds.length) skippedRange = true; return; }
-      const key = r.userMapped || r.user;
+      const key = personLabel(r.userMapped || r.user);
       if(!personAgg[key]) personAgg[key] = { name:key, rawNames:new Set(), isAdmin:r.isAdmin, pages:new Set(),
         interNew:0, interOld:0, interTotal:0, newInbox:0, ordNew:0, ordOld:0, ordTotal:0, replied:0 };
       statKinds.add(r.statKind || 'engagement');
@@ -11608,7 +11620,7 @@ function renderRepHeatmap(){
     const dot = repColorMap[s.rep] || OTHER_COLOR;
     const cells = REP_HEAT_COLS.map(c => `<td class="heat" style="${heatStyle(c.k, s[c.k]||0)}">${c.fmt(s[c.k]||0)}</td>`).join('');
     // คลิกที่แถว = drill-down ดูเฉพาะคนนั้น (คลิกซ้ำ = ยกเลิก) แบบเดียวกับ Looker
-    const pName = canonPerson(s.rep);
+    const pName = personLabel(s.rep);
     const on = state.person === pName;
     return `<tr class="clickable-row" data-person="${String(pName).replace(/"/g,'&quot;')}" title="คลิกเพื่อดูเฉพาะ ${pName}">
       <td><span class="rep-name-pill"><span class="rep-dot" style="background:${dot}"></span>${s.rep}${on ? ' <span class="pf-pill" style="background:var(--series-1)">กำลังดู</span>' : ''}</span></td>${cells}</tr>`;
