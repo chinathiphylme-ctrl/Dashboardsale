@@ -9423,6 +9423,19 @@ function fmtDMY(d){ return d.toLocaleDateString('th-TH', {day:'numeric', month:'
 function fmtDM(d){ return d.toLocaleDateString('th-TH', {day:'numeric', month:'short'}); }
 const THAI_DOW = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 
+/* ---- บัญชีกลาง TRADER -> เจ้าของจริงตามช่องทาง (owner 28 ต.ค. 69) ----
+   ตั้งแต่ ต.ค. 69: Telesales (โทร) = จิตรานนท์ ชิตานุช · CRM (LINE) = chinathiphylme · ช่องทางอื่นคงเป็น TRADER
+   ชื่อเดิมเก็บไว้ใน __ownerRaw และคำนวณใหม่จากชื่อเดิมทุกครั้ง -> แก้กติกาแล้วย้อนกลับได้เสมอ */
+const TRADER_OWNER_FROM = '2026-10-01';
+const TRADER_OWNER_BY_CHANNEL = { [TELESALES_CH_LABEL]:'จิตรานนท์ ชิตานุช', [CRM_CH_LABEL]:'chinathiphylme' };
+function reassignTraderOwner(r){
+  if(r.__ownerRaw != null){ r['Current User Name'] = r.__ownerRaw; delete r.__ownerRaw; }
+  if(!/^trader$/i.test(String(r['Current User Name'] || '').trim()) || !r.__date || r.__date < TRADER_OWNER_FROM) return;
+  const to = TRADER_OWNER_BY_CHANNEL[channelLabel(r)];
+  if(!to) return;
+  r.__ownerRaw = r['Current User Name'];
+  r['Current User Name'] = to;
+}
 function recomputeDataset(options = {}){
   clearError();
   // 1) merge leads across files, later files win on duplicate Lead ID
@@ -9487,6 +9500,7 @@ function recomputeDataset(options = {}){
 
   // 4) assign purchase date to leads (skip leads with unparsable date)
   leads.forEach(r => { r.__date = orderDateOf(r); });   // รอบวันทำงาน (ตัด 01:00)
+  leads.forEach(reassignTraderOwner);                    // TRADER -> เจ้าของจริงตามช่องทาง
 
   /* ---- 4a) กันยอดซ้ำ "ข้ามระบบ" -------------------------------------------------------
      การ dedupe ด้านบนใช้ Lead ID อย่างเดียว แต่ออเดอร์ใบเดียวกันที่มาจากคนละระบบจะมี
