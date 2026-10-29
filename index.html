@@ -3755,6 +3755,15 @@ body.page-compare #sideOpenCal, body.page-compare #teamSide .side-picklist{ disp
         <span class="rx-hint" id="rxScopeHint"></span>
       </div>
 
+      <div class="rx-row" style="margin-top:10px;">
+        <span class="rx-lead">ออเดอร์:</span>
+        <div class="seg" id="rxStatusSeg" style="padding:2px;">
+          <button data-rxstatus="all" class="active" style="padding:6px 13px;font-size:12px;">ทุกออเดอร์ (รวมยกเลิก)</button>
+          <button data-rxstatus="ok" style="padding:6px 13px;font-size:12px;">เฉพาะออเดอร์ที่สำเร็จ (นับยอด)</button>
+        </div>
+        <span class="rx-hint" id="rxStatusHint"></span>
+      </div>
+
       <div id="rxSummary" style="font-size:13px; color:var(--text-secondary); margin:14px 0; line-height:1.9;"></div>
 
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -9057,6 +9066,8 @@ function exportPointTemplate(){
    ต่างจากปุ่ม POS ด้านบนตรงที่ "ไม่ผูก" กับแท็บรายวัน/สัปดาห์/เดือน — พิมพ์วันเริ่ม-วันจบเองได้
    และเลือกได้ว่าจะเอาทุกทีม หรือเอาเฉพาะทีม/ผู้ดูแลที่กำลังกรองอยู่                          */
 let rxScope = 'all';            // 'all' = ทุกทีมทั้งบริษัท | 'filter' = ตามตัวกรองที่เลือกอยู่
+// 'all' = ทุกออเดอร์ (ใบยกเลิกติดป้าย / แยกชีต) | 'ok' = เฉพาะออเดอร์ที่สำเร็จ = นับยอด (ไม่ยกเลิก ไม่ตั้ง "ไม่นับยอด") — owner 29 ต.ค. 69
+let rxStatus = (() => { try { return localStorage.getItem('hylme-rx-status') === 'ok' ? 'ok' : 'all'; } catch(e){ return 'all'; } })();
 let rxFrom = null, rxTo = null; // 'YYYY-MM-DD'
 let rxReady = false;
 
@@ -9076,7 +9087,10 @@ function rxBounds(){
 
 // ดึงออเดอร์ + บรรทัดสินค้าในช่วงวันที่ ตามขอบเขตที่เลือก
 function rxSelect(){
-  return transactionSelect(rxFrom,rxTo,rxScope==='filter');
+  const sel = transactionSelect(rxFrom,rxTo,rxScope==='filter');
+  if(rxStatus !== 'ok') return sel;
+  const leads = sel.leads.filter(r => !r.__cancelled), ids = new Set(leads.map(r => r['Lead ID']));
+  return { leads, products: sel.products.filter(x => ids.has(x['Lead ID'])) };
 }
 
 function rxItemsByLead(products){
@@ -9141,7 +9155,7 @@ function buildRxItemRows(leads, products){
   return rows;
 }
 
-function rxTag(){ return `${rxFrom || 'start'}_to_${rxTo || 'end'}${rxScope === 'filter' ? '_filtered' : ''}`; }
+function rxTag(){ return `${rxFrom || 'start'}_to_${rxTo || 'end'}${rxScope === 'filter' ? '_filtered' : ''}${rxStatus === 'ok' ? '_success' : ''}`; }
 function rxSheet(headers, rows){ return XLSX.utils.aoa_to_sheet([headers, ...rows]); }
 function rxWarnEmpty(n){
   if(n) return false;
@@ -9304,6 +9318,9 @@ function renderRangeExport(){
   document.getElementById('rxScopeHint').textContent =
     state.team === 'all' && !state.person ? '(ตอนนี้ยังไม่ได้กรองทีม — สองแบบให้ผลเท่ากัน)' : '';
   document.querySelectorAll('#rxScopeSeg button').forEach(x => x.classList.toggle('active', x.dataset.rxscope === rxScope));
+  document.querySelectorAll('#rxStatusSeg button').forEach(x => x.classList.toggle('active', x.dataset.rxstatus === rxStatus));
+  const sh = document.getElementById('rxStatusHint');
+  if(sh) sh.textContent = rxStatus === 'ok' ? '(ไม่มีใบยกเลิก / ไม่นับยอด ในไฟล์ — ไม่มีชีตออเดอร์ยกเลิก)' : '(ใบยกเลิกอยู่ในไฟล์ ติดป้าย "ยกเลิก / ไม่นับยอด")';
 
   ['btnRxPos','btnRxOrders','btnRxBoth','btnRxDaily'].forEach(id => {
     const btn = document.getElementById(id);
@@ -9327,6 +9344,9 @@ function initRangeExportEvents(){
   on('rxTo',   'change', e => { rxTo   = e.target.value || null; renderRangeExport(); });
   on('rxPresets', 'click', e => { const b = e.target.closest('button[data-preset]'); if(b) rxApplyPreset(b.dataset.preset); });
   on('rxScopeSeg', 'click', e => { const b = e.target.closest('button[data-rxscope]'); if(b){ rxScope = b.dataset.rxscope; renderRangeExport(); } });
+  on('rxStatusSeg', 'click', e => { const b = e.target.closest('button[data-rxstatus]'); if(!b) return; rxStatus = b.dataset.rxstatus;
+    try { localStorage.setItem('hylme-rx-status', rxStatus); } catch(err){}
+    renderRangeExport(); });
   on('btnRxPos', 'click', exportRxPos);
   on('btnRxOrders', 'click', exportRxOrders);
   on('btnRxBoth', 'click', exportRxBoth);
