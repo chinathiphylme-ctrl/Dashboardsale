@@ -1384,7 +1384,7 @@ footer{ border-top:1px solid var(--glass-line); }
 #channelHeatmap .rep-dot{flex-shrink:0;}
 
 /* Quick cancellation search; retain existing dashboard colors and controls. */
-.cxl-quick-results{display:grid;gap:12px;margin:12px 0}.cxl-quick-order{border:1px solid var(--border);border-radius:12px;background:var(--surface-1);padding:15px}.cxl-quick-head{display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;align-items:flex-start}.cxl-quick-id{font-weight:750;font-size:14px}.cxl-quick-meta{font-size:12px;color:var(--text-secondary);line-height:1.8;margin-top:5px;overflow-wrap:anywhere}.cxl-quick-state{font-size:12px;font-weight:650;color:var(--text-secondary)}.cxl-quick-fields{display:grid;grid-template-columns:minmax(200px,1fr) minmax(170px,.6fr) auto;gap:10px;margin-top:12px;align-items:end}.cxl-quick-fields label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--text-secondary)}.cxl-quick-fields input{width:100%;box-sizing:border-box;border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);border-radius:9px;padding:10px;font:inherit;font-size:12px}.cxl-quick-fields .btn{min-height:39px}.cxl-quick-reason{font-size:12px;color:var(--text-secondary);line-height:1.7;margin-top:8px}.cxl-advanced{margin-top:20px;border-top:1px solid var(--border);padding-top:13px}.cxl-advanced>summary{font-size:12px;cursor:pointer;color:var(--text-secondary)}@media(max-width:720px){.cxl-quick-fields{grid-template-columns:1fr}.cxl-quick-fields .btn{width:100%}}
+.cxl-quick-results{display:grid;gap:12px;margin:12px 0}.cxl-quick-order{border:1px solid var(--border);border-radius:12px;background:var(--surface-1);padding:15px}.cxl-quick-head{display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;align-items:flex-start}.cxl-quick-id{font-weight:750;font-size:14px}.cxl-quick-meta{font-size:12px;color:var(--text-secondary);line-height:1.8;margin-top:5px;overflow-wrap:anywhere}.cxl-quick-state{font-size:12px;font-weight:650;color:var(--text-secondary)}.cxl-quick-fields{display:grid;grid-template-columns:minmax(200px,1fr) minmax(170px,.6fr) auto;gap:10px;margin-top:12px;align-items:end}.cxl-quick-fields label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--text-secondary)}.cxl-quick-fields input{width:100%;box-sizing:border-box;border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);border-radius:9px;padding:10px;font:inherit;font-size:12px}.cxl-quick-fields .btn{min-height:39px}.cxl-quick-fields.cxl-restore-fields{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.cxl-quick-fields select{width:100%;box-sizing:border-box;border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);border-radius:9px;padding:10px;font:inherit;font-size:12px}.cxl-quick-reason{font-size:12px;color:var(--text-secondary);line-height:1.7;margin-top:8px}.cxl-advanced{margin-top:20px;border-top:1px solid var(--border);padding-top:13px}.cxl-advanced>summary{font-size:12px;cursor:pointer;color:var(--text-secondary)}@media(max-width:720px){.cxl-quick-fields{grid-template-columns:1fr}.cxl-quick-fields .btn{width:100%}}
 
 /* Cancellation adjustment ledger; inherit dashboard light/dark tokens. */
 .cxl-card{min-width:0}.cxl-note{border:1px solid var(--border);border-radius:12px;background:var(--surface-1);font-size:12px;line-height:1.7;padding:10px 13px;margin:12px 0;color:var(--text-secondary)}
@@ -4295,7 +4295,7 @@ let DATA = null;
 let productColorMap = {};
 let channelColorMap = {};
 let repColorMap = {};
-let state = { mode:'day', dayIndex:0, weekIndex:0, monthIndex:0, rgFrom:null, rgTo:null, team:'all', person:'', teamScope:'period', productFocus:'' };
+let state = { mode:'day', dayIndex:0, weekIndex:0, monthIndex:0, rgFrom:null, rgTo:null, team:'all', person:'', channel:'', teamScope:'period', productFocus:'' };
 let DATA_STAMP = 0;   // เพิ่มขึ้น 1 ทุกครั้งที่คำนวณชุดข้อมูลใหม่ — ใช้ล้างแคชของช่วงที่เลือกเอง
 let productMetric = 'units';   // คงไว้เพื่อ compatibility; การ์ดสินค้าแสดงจำนวนชิ้นเท่านั้น
 let retDayScope = 'recent30'; // มุมมองการ์ดลูกค้าเก่า: 'period' = เฉพาะช่วงที่เลือก, 'recent30' = 30 วันล่าสุด, 'all' = ทุกวันในข้อมูล, 'month' = รายเดือน
@@ -6172,7 +6172,7 @@ function afterFilesLoaded(){
     dashboard.style.display = 'block';
     topActions.style.display = 'flex';
     state = { mode:'day', dayIndex: DATA.days.length-1, weekIndex: DATA.weeks.length-1, monthIndex: DATA.months.length-1,
-              rgFrom:null, rgTo:null, team:'all', person:'', teamScope:'period' };
+              rgFrom:null, rgTo:null, team:'all', person:'', channel:'', teamScope:'period' };
     renderAll();
     // จำข้อมูลชุดนี้ไว้ในเบราว์เซอร์ ครั้งต่อไปไม่ต้องอัปโหลดใหม่ — ยกเว้นเพิ่งเปิดจากข้อมูลที่ฝัง/data.json
     // (ข้อมูลชุดนั้นโหลดจากไฟล์ทุกครั้งอยู่แล้ว การเซฟซ้ำทำให้หน้าค้างตอนเปิดเกือบ 2 วินาที)
@@ -6312,7 +6312,7 @@ function removeUploadedFiles(files){
   impSel.clear();
   if(uploadedFiles.length === 0){ resetAll(); return; }
   saveToLocal();
-  if(!recomputeDataset()){ state.team = 'all'; state.person = ''; recomputeDataset(); }
+  if(!recomputeDataset()){ state.team = 'all'; state.person = ''; state.channel = ''; recomputeDataset(); }
   renderImportedFilesCard();   // อัปเดตตารางก่อน เผื่อ renderAll() สะดุดจะได้ยังเห็นผลการลบ
   renderAll();
 }
@@ -6913,7 +6913,7 @@ function renderCancelCard(){
   document.getElementById('btnScanCancel').onclick = () => document.getElementById('cancelFileInput').click();
   document.getElementById('cxAmtMatch').onchange = e => {
     cancelAmountMatch = e.target.checked;
-    if(!recomputeDataset()){ state.team='all'; state.person=''; recomputeDataset(); }
+    if(!recomputeDataset()){ state.team='all'; state.person=''; state.channel=''; recomputeDataset(); }
     renderAll();
   };
   document.getElementById('btnCxList').onclick = () => {
@@ -6985,7 +6985,7 @@ function handleCancelScanFiles(fileList){
         pending -= 1;
         if(pending === 0){
           saveToLocal();
-          if(!recomputeDataset()){ state.team='all'; state.person=''; recomputeDataset(); }
+          if(!recomputeDataset()){ state.team='all'; state.person=''; state.channel=''; recomputeDataset(); }
           renderFileStrip(); renderAll();
           alert('ตรวจออเดอร์ยกเลิกเสร็จแล้ว\n\n' + lines.join('\n'));
         }
@@ -8531,8 +8531,8 @@ function renderContactCard(){
   const repeat = rows.filter(r => r.order_count > 1).length;
   const noPhone = rows.filter(r => !r._hasPhone).length;
   const amount = rows.reduce((s, r) => s + (r.purchased_amount || 0), 0);
-  const filterTxt = (state.team !== 'all' || state.person)
-    ? ` • ตัวกรอง: <b>${TEAM_LABEL(state.team)}</b>${state.person ? ' › <b>' + state.person + '</b>' : ''}` : '';
+  const filterTxt = (state.team !== 'all' || state.person || state.channel)
+    ? ` • ตัวกรอง: <b>${TEAM_LABEL(state.team)}</b>${state.person ? ' › <b>' + state.person + '</b>' : ''}${state.channel ? ' › เพจ <b>' + state.channel + '</b>' : ''}` : '';
   el.innerHTML = `
     <div>${scope.label}${filterTxt} • ลูกค้า <b>${fmtNum(rows.length)}</b> ราย (จาก ${fmtNum(scope.leads.length)} ออเดอร์)</div>
     <div>ซื้อซ้ำ <b>${fmtNum(repeat)}</b> ราย • ยอดซื้อสะสมรวม <b>${fmtBaht(amount)}</b></div>
@@ -8656,8 +8656,8 @@ function renderTopSpenderCard(){
 
   const rows = topSpenderRowsForMonth(tsMonth);
   const top10 = rows.slice(0, 10);
-  const filterTxt = (state.team !== 'all' || state.person)
-    ? ` • ตัวกรอง: <b>${TEAM_LABEL(state.team)}</b>${state.person ? ' › <b>' + state.person + '</b>' : ''}` : '';
+  const filterTxt = (state.team !== 'all' || state.person || state.channel)
+    ? ` • ตัวกรอง: <b>${TEAM_LABEL(state.team)}</b>${state.person ? ' › <b>' + state.person + '</b>' : ''}${state.channel ? ' › เพจ <b>' + state.channel + '</b>' : ''}` : '';
   const totalAmount = rows.reduce((s, r) => s + (r.purchased_amount || 0), 0);
   if(summaryEl){
     summaryEl.innerHTML = rows.length
@@ -8842,7 +8842,8 @@ function transactionSelect(from, to, filtered=false){
   const source=DATA.transactionLeads || DATA.unfilteredLeads || [];
   const leads=source.filter(r=>r.__date && (!from || r.__date>=from) && (!to || r.__date<=to)
     && (!filtered || !state.team || state.team==='all' || r.__team===state.team)
-    && (!filtered || !state.person || r.__person===state.person));
+    && (!filtered || !state.person || r.__person===state.person)
+    && (!filtered || !state.channel || channelLabel(r)===state.channel));
   const ids=new Set(leads.map(r=>r['Lead ID']));
   const products=(DATA.transactionProducts || DATA.unfilteredProducts || []).filter(r=>ids.has(r['Lead ID']));
   return {leads,products};
@@ -9312,11 +9313,11 @@ function renderRangeExport(){
 
   document.getElementById('rxSummary').innerHTML =
     `<div><b>${fmtNum(leads.length)}</b> ออเดอร์ รวมยกเลิก ${fmtNum(cancelledCount)} บิล • ยอดที่นับจริง <b>${fmtBaht(sales)}</b> • ${fmtNum(units)} ชิ้นที่นับยอด • ครอบคลุม ${fmtNum(nDays)} วัน</div>
-     <div style="font-size:12px;color:var(--text-muted);">ช่วง ${rxFrom || '-'} ถึง ${rxTo || '-'} • ขอบเขต: ${rxScope === 'filter' ? TEAM_LABEL(state.team) + (state.person ? ' – ' + state.person : '') : 'ทุกทีมทั้งบริษัท'}</div>
+     <div style="font-size:12px;color:var(--text-muted);">ช่วง ${rxFrom || '-'} ถึง ${rxTo || '-'} • ขอบเขต: ${rxScope === 'filter' ? TEAM_LABEL(state.team) + (state.person ? ' – ' + state.person : '') + (state.channel ? ' – เพจ ' + state.channel : '') : 'ทุกทีมทั้งบริษัท'}</div>
      <div style="font-size:12px;color:var(--text-muted);">ไฟล์ POS จะได้ ${fmtNum(posOrders)} บิลที่นับยอด (${fmtNum(posRows.length)} บรรทัดสินค้า) และแยก ${fmtNum(cancelledCount)} บิลยกเลิกในชีตต่างหาก${noSku > 0 ? ` — ข้าม ${fmtNum(noSku)} ออเดอร์ที่ไม่มีสินค้าที่มี SKU` : ''}</div>`;
 
   document.getElementById('rxScopeHint').textContent =
-    state.team === 'all' && !state.person ? '(ตอนนี้ยังไม่ได้กรองทีม — สองแบบให้ผลเท่ากัน)' : '';
+    state.team === 'all' && !state.person && !state.channel ? '(ตอนนี้ยังไม่ได้กรองทีม / เพจ — สองแบบให้ผลเท่ากัน)' : '';
   document.querySelectorAll('#rxScopeSeg button').forEach(x => x.classList.toggle('active', x.dataset.rxscope === rxScope));
   document.querySelectorAll('#rxStatusSeg button').forEach(x => x.classList.toggle('active', x.dataset.rxstatus === rxStatus));
   const sh = document.getElementById('rxStatusHint');
@@ -9731,13 +9732,15 @@ function recomputeDataset(options = {}){
   const unfilteredProducts = products.slice();
   if(state.team && state.team !== 'all') validLeads = validLeads.filter(r => r.__team === state.team);
   if(state.person) validLeads = validLeads.filter(r => r.__person === state.person);
+  // เพจ / ช่องทาง (owner 30 ต.ค. 69) — ชื่อเดียวกับ "ช่องทาง (ตามแดชบอร์ด)" เลือกได้ทีละเพจ
+  if(state.channel) validLeads = validLeads.filter(r => channelLabel(r) === state.channel);
   {
     const keepIds = new Set(validLeads.map(r => r['Lead ID']));
     products = products.filter(p => keepIds.has(p['Lead ID']));
   }
   if(validLeads.length === 0 && !options.allowEmpty){
     const pf = state.productFocus ? ' • สินค้า: ' + state.productFocus : '';
-    showError('ไม่มีออเดอร์ของตัวกรองที่เลือก (' + TEAM_LABEL(state.team) + (state.person ? ' - ' + state.person : '') + pf + ') - ล้างตัวกรองสินค้าหรือกด "ทุกทีม" เพื่อกลับไปดูข้อมูล');
+    showError('ไม่มีออเดอร์ของตัวกรองที่เลือก (' + TEAM_LABEL(state.team) + (state.person ? ' - ' + state.person : '') + (state.channel ? ' - เพจ ' + state.channel : '') + pf + ') - ล้างตัวกรองสินค้าหรือกด "ทุกทีม" เพื่อกลับไปดูข้อมูล');
     return false;
   }
 
@@ -11335,7 +11338,7 @@ function adsChannelStats(p){
  const dates=new Set(p.dates||[p.date]);const active=adsRecords.filter(r=>dates.has(r.date));
  const stats=(p.channelStats||[]).map(s=>({...s,mktCost:null,mktPct:null,mktInq:null,cpi:null,cpo:null,roas:null}));
  // Page advertising cannot be apportioned reliably to an individual salesperson.
- if(!state.person){for(const r of active){const channel=ADS_CHANNELS[r.page];let s=stats.find(s=>s.channel===channel);if(!s&&(state.team==='all'||state.team==='admin')){s={channel,orders:0,sales:0,aov:0,units:0,upo:0,products:[],mktCost:null,mktPct:null};stats.push(s);}if(s){s.mktCost=(s.mktCost??0)+r.cost;if(r.inq!=null)s.mktInq=(s.mktInq??0)+r.inq;}}}
+ if(!state.person){for(const r of active){const channel=ADS_CHANNELS[r.page];let s=stats.find(s=>s.channel===channel);if(!s&&!state.channel&&(state.team==='all'||state.team==='admin')){s={channel,orders:0,sales:0,aov:0,units:0,upo:0,products:[],mktCost:null,mktPct:null};stats.push(s);}if(s){s.mktCost=(s.mktCost??0)+r.cost;if(r.inq!=null)s.mktInq=(s.mktInq??0)+r.inq;}}}
  for(const s of stats){if(s.mktCost!=null&&s.sales>0)s.mktPct=s.mktCost/s.sales*100;
   if(s.mktCost>0){if(s.mktInq>0)s.cpi=s.mktCost/s.mktInq;if(s.orders>0)s.cpo=s.mktCost/s.orders;if(s.mktCost>0)s.roas=s.sales/s.mktCost;}}
  const pages=Object.entries(ADS_CHANNELS).filter(([page,ch])=>stats.some(s=>s.channel===ch));
@@ -11438,7 +11441,7 @@ function renderProductAds(p){
  const el=document.getElementById('prodAds'),sub=document.getElementById('prodAdsSub');
  if(!el)return;
  prodAdsHistory();
- if(state.person){el.innerHTML='';sub.textContent='MKT cost แยกสินค้าเป็นระดับแบรนด์ จึงไม่แสดงเมื่อกรองรายบุคคล';return;}
+ if(state.person||state.channel){el.innerHTML='';sub.textContent='MKT cost แยกสินค้าเป็นระดับแบรนด์ จึงไม่แสดงเมื่อกรอง'+(state.person?'รายบุคคล':'รายเพจ');return;}
  const periodDates=(p&&(p.dates||[p.date]))||[];
  const covered=new Set(productAdsRecords.map(r=>r.date));
  const dates=periodDates.filter(d=>covered.has(d));
@@ -12107,13 +12110,14 @@ function renderTargetInputs(){
 
 /* ==================== แถบเลือกทีม + drill-down รายคน (Looker-style) ==================== */
 // เปลี่ยนตัวกรอง -> คำนวณ dataset ใหม่ทั้งชุด แล้วพยายามคงช่วงเวลาเดิมที่ผู้ใช้เลือกไว้
-function applyScope(team, person){
+function applyScope(team, person, channel){
   if(!DATA) return;
-  const prevTeam = state.team, prevPerson = state.person;
+  const prevTeam = state.team, prevPerson = state.person, prevChannel = state.channel;
+  state.channel = channel === undefined ? (state.channel || '') : (channel || '');
   const curKey = (() => { try{ const p = currentPeriod(); return state.mode === 'day' ? p.date : p.key; }catch(e){ return null; } })();
   state.team = team; state.person = person || '';
   if(!recomputeDataset()){                       // ตัวกรองนี้ไม่มีข้อมูลเลย -> ย้อนกลับของเดิม
-    state.team = prevTeam; state.person = prevPerson;
+    state.team = prevTeam; state.person = prevPerson; state.channel = prevChannel;
     recomputeDataset(); renderAll();
     return;
   }
@@ -12299,15 +12303,31 @@ function renderTeamBar(){
       <button class="person-chip${state.person ? '' : ' active'}" data-person="">ทุกคน</button>
       ${people.map(p => `<button class="person-chip${state.person === p.name ? ' active' : ''}" data-person="${String(p.name).replace(/"/g,'&quot;')}">${p.name} <span class="n">${fmtNum(p.orders)}</span></button>`).join('')}</div>`;
   }
-  const filtered = state.team !== 'all' || state.person;
-  const crumb = `<div class="filter-crumb">กำลังดู: <b>${TEAM_LABEL(state.team)}</b>${state.person ? ' › <b>' + state.person + '</b>' : ''}
+  // เพจ / ช่องทาง — นับออเดอร์ของช่วง + ทีม/คนที่เลือก (ยังไม่กรองเพจ) เลือกได้ทีละเพจ กดซ้ำ = ทุกเพจ
+  const chCount = {};
+  const chDates = scoped ? currentPeriodDates() : null;
+  (DATA.unfilteredLeads || []).forEach(r => {
+    if(chDates && !chDates.has(r.__date)) return;
+    if(state.team !== 'all' && r.__team !== state.team) return;
+    if(state.person && r.__person !== state.person) return;
+    const c = channelLabel(r); chCount[c] = (chCount[c] || 0) + 1;
+  });
+  if(state.channel && !(state.channel in chCount)) chCount[state.channel] = 0;
+  const chList = Object.keys(chCount).sort((a, b) => channelRank(a) - channelRank(b) || chCount[b] - chCount[a]);
+  const chEsc = s => String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const pageHtml = chList.length > 1 || state.channel ? `<div class="team-people"><span class="lbl">เพจ / ช่องทาง:</span>
+      <button class="person-chip${state.channel ? '' : ' active'}" data-channel="">ทุกเพจ</button>
+      ${chList.map(c => `<button class="person-chip${state.channel === c ? ' active' : ''}" data-channel="${chEsc(c)}">${chEsc(c)} <span class="n">${fmtNum(chCount[c])}</span></button>`).join('')}</div>` : '';
+  const filtered = state.team !== 'all' || state.person || state.channel;
+  const crumb = `<div class="filter-crumb">กำลังดู: <b>${TEAM_LABEL(state.team)}</b>${state.person ? ' › <b>' + state.person + '</b>' : ''}${state.channel ? ' › เพจ <b>' + state.channel + '</b>' : ''}
     ${filtered ? '<span class="clear" data-clear="1">ล้างตัวกรอง</span>' : ''}
     <span style="margin-left:10px;">• ทุกการ์ดในหน้านี้ถูกกรองตามนี้ทั้งหมด (เลือกทีมได้จากแถบซ้าย)</span></div>`;
 
-  host.innerHTML = `${peopleHtml}${crumb}`;
+  host.innerHTML = `${peopleHtml}${pageHtml}${crumb}`;
   host.querySelectorAll('button[data-person]').forEach(b => b.onclick = () => applyScope(state.team, b.dataset.person));
+  host.querySelectorAll('button[data-channel]').forEach(b => b.onclick = () => applyScope(state.team, state.person, state.channel === b.dataset.channel ? '' : b.dataset.channel));
   const cl = host.querySelector('[data-clear]');
-  if(cl) cl.onclick = () => applyScope('all', '');
+  if(cl) cl.onclick = () => applyScope('all', '', '');
 }
 
 /* ==================== สรุปยอดขายส่งทีม (ข้อความล้วน คัดลอกไปวางในไลน์) ====================
@@ -12464,9 +12484,9 @@ function renderReportCard(){
   // เตือนเมื่อกรองทีม/รายคนอยู่ — รายงานฉบับนี้ตั้งใจให้เป็นยอดทั้งบริษัท
   const warn = document.getElementById('rpWarn');
   if(warn){
-    const filtered = (state.team && state.team !== 'all') || state.person;
+    const filtered = (state.team && state.team !== 'all') || state.person || state.channel;
     warn.innerHTML = filtered
-      ? `<div class="rp-warn">⚠ ตอนนี้กรองข้อมูลอยู่ที่ <b>${TEAM_LABEL(state.team)}${state.person ? ' – ' + state.person : ''}</b>
+      ? `<div class="rp-warn">⚠ ตอนนี้กรองข้อมูลอยู่ที่ <b>${TEAM_LABEL(state.team)}${state.person ? ' – ' + state.person : ''}${state.channel ? ' – เพจ ' + state.channel : ''}</b>
          รายงานจะได้เฉพาะยอดของตัวกรองนี้ — ถ้าต้องการยอดทั้งบริษัท ให้กด “ทุกทีม” ก่อน</div>`
       : '';
   }
@@ -12757,7 +12777,7 @@ function oeFind(q){
 function oeSourcePay(lead){ if(isMarketplaceOrder(lead)) return PAYMENT_MARKETPLACE; return PAYMENT_OVERRIDES[lead['Lead ID']] || paymentMethod(lead['Lead Intro']); }
 function oeDM(s){ return s ? new Date(s + 'T00:00:00').toLocaleDateString('th-TH', {day:'numeric', month:'short', year:'2-digit'}) : '—'; }
 function oeDesc(e){ const a = []; if(e.count === true) a.push('นับเป็นยอดขาย'); if(e.count === false) a.push('ไม่นับยอด'); if(e.pay) a.push('วิธีชำระ → ' + e.pay); if(e.date) a.push('นับยอดวันที่ ' + oeDM(e.date)); return a.join(' · ') || '—'; }
-function oeRecompute(){ if(DATA){ if(!recomputeDataset()){ state.team = 'all'; state.person = ''; recomputeDataset(); } renderAll(); renderBackendCards(true); } }
+function oeRecompute(){ if(DATA){ if(!recomputeDataset()){ state.team = 'all'; state.person = ''; state.channel = ''; recomputeDataset(); } renderAll(); renderBackendCards(true); } }
 async function oeCommit(id, ed, reason){
   if(HylmeVault.isLocked() && !(await HylmeVault.promptUnlock('ใส่รหัสผ่านเพื่อแก้ไขออเดอร์และบันทึกลง database'))) return;
   ORDER_EDITS = ORDER_EDITS || {}; ORDER_EDITS.edits = ORDER_EDITS.edits || {}; ORDER_EDITS.log = ORDER_EDITS.log || [];
@@ -13694,7 +13714,7 @@ function cxlRender(){
   }));
 }
 function cxlRecompute(){
-  if(DATA){if(!recomputeDataset()){state.team='all';state.person='';recomputeDataset();}renderAll();}
+  if(DATA){if(!recomputeDataset()){state.team='all';state.person='';state.channel='';recomputeDataset();}renderAll();}
   else cxlRender();
 }
 
@@ -13964,10 +13984,12 @@ function cxlQuickRender(){
     const currentDecision=decision.action?decision:lead&&lead.__manualDecision||decision;
     const reason=currentDecision.reason||lead&&lead.__cancelled&&lead.__cancelled.reason||'';
     const replacement=currentDecision.replacement||lead&&lead.__cancelled&&lead.__cancelled.replacement||'';
-    const status=!row.available?'อยู่ในประวัติ / รายการรอตรวจ — ไม่มีรายการขายให้ปรับยอด':row.cancelled?'ยกเลิก / ไม่นับยอดแล้ว':'นับยอดขายอยู่';
+    const draft=!row.lead&&cxlDrafts()[row.id],restored=!!(lead&&lead.__restoredAt);
+    const status=!row.available?(draft?'Pancake ยกเลิก — ยังไม่นับยอด (รื้อฟื้นได้)':'อยู่ในประวัติ / รายการรอตรวจ — ไม่มีรายการขายให้ปรับยอด'):row.cancelled?'ยกเลิก / ไม่นับยอดแล้ว':restored?'รื้อฟื้นแล้ว — นับยอดขายอยู่':'นับยอดขายอยู่';
     const prior=reason||replacement?'<div class="cxl-quick-reason">เหตุผล: '+cxlE(reason||'–')+(replacement?' • เปลี่ยนเป็น '+cxlE(replacement):'')+'</div>':'';
-    const controls=!row.available?'<div class="cxl-muted" style="margin-top:10px">รายการนี้ไม่มีออเดอร์ตรงเลขในข้อมูลขาย จึงไม่มีปุ่มหักยอด — ค้นหาด้วยชื่อหรือเบอร์เพื่อหาออเดอร์ขายที่เกี่ยวข้องได้</div>':row.cancelled?
-      '<div class="cxl-toolbar"><button class="btn" type="button" data-quick-action="keep">คืนยอดออเดอร์นี้</button></div>':
+    const controls=!row.available?draft?cxlRestoreForm(row,draft):'<div class="cxl-muted" style="margin-top:10px">รายการนี้ไม่มีออเดอร์ตรงเลขในข้อมูลขาย จึงไม่มีปุ่มหักยอด — ค้นหาด้วยชื่อหรือเบอร์เพื่อหาออเดอร์ขายที่เกี่ยวข้องได้</div>':row.cancelled?
+      '<div class="cxl-toolbar"><button class="btn" type="button" data-quick-action="keep">คืนยอดออเดอร์นี้</button></div>':restored?
+      '<div class="cxl-toolbar"><button class="btn" type="button" data-quick-action="unrestore">ยกเลิกการรื้อฟื้น (กลับเป็นออเดอร์ยกเลิก)</button></div>':
       '<div class="cxl-quick-fields"><label>เหตุผล (ถ้ามี)<input data-quick-reason autocomplete="off" placeholder="เช่น ลูกค้ายกเลิก / เปลี่ยนออเดอร์" value="'+cxlE(saved.reason||'')+'"></label><label>เปลี่ยนเป็นออเดอร์ (ถ้ามี)<input data-quick-replacement autocomplete="off" list="cxlQuickReplacements" placeholder="เช่น pk 456" value="'+cxlE(saved.replacement||'')+'"></label><button class="btn primary" type="button" data-quick-action="deduct">ยกเลิก / ไม่นับยอด</button></div>';
     return '<article class="cxl-quick-order" data-cxl-quick-row="'+cxlE(row.id)+'"><div class="cxl-quick-head"><div><div class="cxl-quick-id">'+cxlE(row.id)+' • '+cxlE(row.name)+'</div><div class="cxl-quick-meta">เบอร์ '+cxlE(row.phone||'ไม่มีเบอร์')+' • '+cxlE(row.date||'ไม่มีวันที่')+' • '+cxlE(row.channel||'')+'<br>'+cxlE(row.products.slice(0,240))+'</div></div><div><b>'+cxlE(row.amount==null?'ไม่ทราบยอด':fmtBaht(row.amount))+'</b><div class="cxl-quick-state">'+cxlE(status)+'</div></div></div>'+prior+controls+'</article>';
   }).join('')||'<div class="cxl-muted">ไม่พบออเดอร์ตรงคำค้น ลองชื่อ เบอร์ หรือเลขออเดอร์อื่น</div>';
@@ -13995,6 +14017,96 @@ function cxlQuickCommit(id,action,reason='',replacement=''){
   cxlQuickInputs.delete(id);cxlQuickCache=null;cxlQuickRender();
   return {id,action,amount:row.amount,replacement:replacementId,reason:note};
 }
+/* ---- รื้อฟื้นออเดอร์ (owner 29 ต.ค. 69) ----
+   ออเดอร์ที่ Pancake ตั้งเป็น "ยกเลิก" ไม่ถูกนำเข้าเป็นยอดขายเลย (มีแค่ในรายการรอตรวจ) แต่บางใบลูกค้ารับของ/จ่ายจริง
+   -> สร้างออเดอร์ขายกลับจากรายการรอตรวจ (ชื่อ เบอร์ สินค้า ยอด) + วันที่นับยอด / พนักงาน / วิธีชำระที่ผู้ดูแลเลือก
+   เก็บใน RETURN_REVIEW_ADDITIONS -> ไปกับข้อมูลทุกรอบใน database (CRM_V3 ได้ด้วย)
+   ไฟล์ Pancake รอบหลังมีเลขนี้แล้ว = ใช้ของไฟล์ (mergeReturnReviewAdditions ข้ามเลขที่มีอยู่แล้ว) ไม่นับซ้ำ */
+const RESTORE_SRC = 'pk:รื้อฟื้นจากรายการยกเลิก';
+function cxlRestoreReps(draft){
+  // ค่าเริ่มต้น = คนที่เปิดบิลช่องทางเดียวกันบ่อยที่สุดในช่วง ±3 วัน
+  const intro = pkChannelToIntro(draft.channel || ''), day = draft.date ? new Date(draft.date + 'T00:00:00') : null;
+  const all = new Map(), near = new Map();
+  ((DATA && DATA.transactionLeads) || []).forEach(r => {
+    if(r['Source'] !== 'Pancake') return;
+    const rep = String(r.__ownerRaw != null ? r.__ownerRaw : (r['Current User Name'] || '')).trim(); if(!rep) return;
+    all.set(rep, (all.get(rep) || 0) + 1);
+    if(intro && day && r.__date && String(r['Lead Intro'] || '').startsWith(intro + ',')
+       && Math.abs(new Date(r.__date + 'T00:00:00') - day) <= 3 * 864e5) near.set(rep, (near.get(rep) || 0) + 1);
+  });
+  const top = m => [...m.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]);
+  return { reps:top(all), pick:top(near)[0] || '' };
+}
+function cxlRestoreFile(draft, o){
+  const id = draft.id, oid = id.replace(/^PK-/, ''), rv = n => Math.round((Number(n) || 0) * 100) / 100;
+  const gross = rv(o.amount), pre = rv(gross / (1 + VAT_RATE));
+  const intro = pkChannelToIntro(draft.channel || '');
+  const items = (draft.items || []).filter(x => x && (x.name || x.sku));
+  const lines = items.length ? items : [{ name:'สินค้า', qty:1, sku:'' }];
+  const w = lines.map(x => Math.max(1, Math.round(Number(x.qty) || 1)));
+  const g = splitGross(gross, w), p = splitGross(pre, w);
+  const dt = o.date + ' 12:00:00';
+  return { name:'รื้อฟื้นออเดอร์ ' + id, __restore:{ id, at:o.at },
+    leadsRows:[{ 'Lead ID':id, 'Lead Name':draft.name || ('ออเดอร์ ' + oid), 'Lead Value':pre,
+      '__grossIncl':gross, '__grossSrc':RESTORE_SRC, 'Lead Purchase Date':dt, 'Create Datetime':dt,
+      'Current User Name':o.rep, 'Lead Intro':(intro ? intro + ', ' : '') + (o.pay === 'COD' ? 'COD' : 'โอน'),
+      'Source':'Pancake', 'Status':'ยืนยันแล้ว', 'Internal Notes':'รื้อฟื้นจากออเดอร์ที่ Pancake ยกเลิก', '__restoredAt':o.at }],
+    prodRows:lines.map((x, i) => ({ 'Lead ID':id, 'Quotation Number':'PKQ-' + oid,
+      'Product Code':String(x.sku || '').trim(), 'Product Name':mapPancakeProductName(x.sku, x.name),
+      'Quantity':w[i], 'Unit Price':rv(p[i] / w[i]), 'Discount':0, 'Value Before VAT':p[i], '__grossIncl':g[i] })),
+    leadsContactsRows:[{ 'Lead ID':id, 'Contact ID':'PKC-' + oid, 'Account ID':'PKA-' + oid }],
+    contactsRows:[{ 'Contact ID':'PKC-' + oid, 'First Name':draft.name || '', 'Last Name':'', 'Phone':draft.phone || '' }],
+    accountsRows:[{ 'Account ID':'PKA-' + oid }] };
+}
+function cxlRestoreDecide(id, dec){
+  const reg = cancelReg(true); reg.decisions = reg.decisions || {}; reg.audit = reg.audit || [];
+  reg.decisions[id] = dec; reg.audit.push({ id, ...dec }); cxlPersistSmall();
+}
+async function cxlRestoreSave(id, msg){
+  cxlQuickCache = null; oeRecompute(); cxlQuickCache = null; cxlRender();
+  if(!HylmeVault.apiMode()){ HylmeVault.notice(msg, 'หน้านี้ไม่ได้ต่อ database — การแก้อยู่ในหน้านี้เท่านั้น'); return; }
+  await HylmeVault.publishFromPage();
+}
+async function cxlRestoreCommit(id, o){
+  const draft = cxlDrafts()[id];
+  if(!draft) throw Error('ไม่พบออเดอร์นี้ในรายการรอตรวจ');
+  if(cxlIndexLead(id)) throw Error('ออเดอร์นี้มีอยู่ในข้อมูลขายแล้ว — ใช้ปุ่มคืนยอดแทน');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(o.date || '')) throw Error('ใส่วันที่นับยอดก่อน');
+  if(!(Number.isFinite(o.amount) && o.amount >= 0)) throw Error('ยอดเงินไม่ถูกต้อง');
+  if(!o.rep) throw Error('เลือกพนักงานขายก่อน');
+  if(!o.reason) throw Error('ใส่เหตุผลที่รื้อฟื้นออเดอร์ก่อน');
+  if(HylmeVault.isLocked() && !(await HylmeVault.promptUnlock('ใส่รหัสผ่านเพื่อรื้อฟื้นออเดอร์และบันทึกลง database'))) return null;
+  const at = new Date().toISOString();
+  RETURN_REVIEW_ADDITIONS = (RETURN_REVIEW_ADDITIONS || []).filter(x => !(x.__restore && x.__restore.id === id))
+    .concat([cxlRestoreFile(draft, { ...o, at })]);
+  mergeReturnReviewAdditions();
+  cxlRestoreDecide(id, { action:'keep', reason:'รื้อฟื้นออเดอร์ (นับยอด): ' + o.reason, replacement:'', amount:o.amount, date:o.date, at });
+  await cxlRestoreSave(id, 'รื้อฟื้นออเดอร์ในหน้านี้แล้ว');
+  return { id, amount:o.amount, date:o.date };
+}
+async function cxlRestoreUndo(id){
+  if(HylmeVault.isLocked() && !(await HylmeVault.promptUnlock('ใส่รหัสผ่านเพื่อยกเลิกการรื้อฟื้นและบันทึกลง database'))) return null;
+  const mine = x => x && x.__restore && x.__restore.id === id;
+  RETURN_REVIEW_ADDITIONS = (RETURN_REVIEW_ADDITIONS || []).filter(x => !mine(x));
+  for(let i = uploadedFiles.length - 1; i >= 0; i--) if(mine(uploadedFiles[i])) uploadedFiles.splice(i, 1);
+  cxlRestoreDecide(id, { action:'pending', reason:'ยกเลิกการรื้อฟื้นออเดอร์', replacement:'', at:new Date().toISOString() });
+  await cxlRestoreSave(id, 'ยกเลิกการรื้อฟื้นในหน้านี้แล้ว');
+  return { id };
+}
+function cxlRestoreForm(row, draft){
+  const r = cxlRestoreReps(draft), pick = r.pick || '';
+  const opts = (pick ? '' : '<option value="">— เลือกพนักงาน —</option>')
+    + r.reps.map(n => '<option value="' + cxlE(n) + '"' + (n === pick ? ' selected' : '') + '>' + cxlE(personLabel(n)) + (personLabel(n) !== n ? ' (' + cxlE(n) + ')' : '') + '</option>').join('');
+  const fld = (label, html) => '<label>' + label + html + '</label>';
+  return '<div class="cxl-muted" style="margin-top:10px">Pancake ตั้งออเดอร์นี้เป็น "ยกเลิก" จึงไม่เคยเข้ายอดขาย — ถ้าออเดอร์นี้นับจริง ตรวจข้อมูลด้านล่างแล้วกด <b>รื้อฟื้นออเดอร์</b> ระบบจะสร้างออเดอร์ขายจากรายการนี้ (ชื่อ เบอร์ สินค้า) แล้วบันทึกลง database</div>'
+    + '<div class="cxl-quick-fields cxl-restore-fields">'
+    + fld('นับยอดวันที่', '<input type="date" data-rs-date value="' + cxlE(draft.date || '') + '">')
+    + fld('ยอดที่ลูกค้าจ่าย (บาท)', '<input type="number" min="0" step="0.01" data-rs-amount value="' + cxlE(draft.amount == null ? '' : draft.amount) + '">')
+    + fld('พนักงานขาย', '<select data-rs-rep>' + opts + '</select>')
+    + fld('วิธีชำระเงิน', '<select data-rs-pay><option value="COD">COD (เก็บเงินปลายทาง)</option><option value="โอน">โอนเงิน</option></select>')
+    + fld('เหตุผล (ต้องใส่)', '<input data-rs-reason autocomplete="off" placeholder="เช่น ลูกค้ารับของแล้ว / กดยกเลิกผิด">')
+    + '<button class="btn primary" type="button" data-quick-action="restore">รื้อฟื้นออเดอร์ (นับยอด)</button></div>';
+}
 (function cxlQuickInit(){
   const search=document.getElementById('cxlQuickSearch'),results=document.getElementById('cxlQuickResults'),status=document.getElementById('cxlQuickStatus');
   if(!search||!results)return;
@@ -14008,6 +14120,15 @@ function cxlQuickCommit(id,action,reason='',replacement=''){
   results.addEventListener('click',event=>{
     const button=event.target.closest('[data-quick-action]');if(!button||button.disabled)return;
     const card=button.closest('[data-cxl-quick-row]'),id=card.dataset.cxlQuickRow;
+    if(button.dataset.quickAction==='restore'||button.dataset.quickAction==='unrestore'){
+      const q=s=>card.querySelector(s),undo=button.dataset.quickAction==='unrestore';
+      button.disabled=true;
+      (undo?cxlRestoreUndo(id):cxlRestoreCommit(id,{date:q('[data-rs-date]').value,amount:Number(q('[data-rs-amount]').value),
+        rep:q('[data-rs-rep]').value,pay:q('[data-rs-pay]').value,reason:q('[data-rs-reason]').value.trim()}))
+        .then(r=>{if(!r){button.disabled=false;return;}status.textContent=undo?'ยกเลิกการรื้อฟื้น '+r.id+' แล้ว — กลับเป็นออเดอร์ยกเลิก':'รื้อฟื้น '+r.id+' • '+fmtBaht(r.amount)+' • นับยอดวันที่ '+r.date+' เรียบร้อยแล้ว';})
+        .catch(error=>{status.textContent=error.message;button.disabled=false;});
+      return;
+    }
     const reason=card.querySelector('[data-quick-reason]'),replacement=card.querySelector('[data-quick-replacement]');
     button.disabled=true;
     try{
@@ -14260,8 +14381,8 @@ function renderCustomerPage(){
   const yearTh = Number(year) + 543;
   const scopeLabel = R.scope === 'year' ? `ทั้งปี ${yearTh}` : topSpenderMonthLabel(R.scope);
   const rangeTxt = `${fmtDMY(cpDay(R.from))} – ${fmtDMY(cpDay(R.to < R.lastDate ? R.to : R.lastDate))}`;
-  const filterTxt = (state.team !== 'all' || state.person || state.productFocus)
-    ? ` • ตัวกรอง: <b>${cpEsc(TEAM_LABEL(state.team))}</b>${state.person ? ' › <b>' + cpEsc(state.person) + '</b>' : ''}${state.productFocus ? ' • Focus <b>' + cpEsc(state.productFocus) + '</b>' : ''}` : '';
+  const filterTxt = (state.team !== 'all' || state.person || state.channel || state.productFocus)
+    ? ` • ตัวกรอง: <b>${cpEsc(TEAM_LABEL(state.team))}</b>${state.person ? ' › <b>' + cpEsc(state.person) + '</b>' : ''}${state.channel ? ' › เพจ <b>' + cpEsc(state.channel) + '</b>' : ''}${state.productFocus ? ' • Focus <b>' + cpEsc(state.productFocus) + '</b>' : ''}` : '';
   const idSales = C.sNew + C.sRet;
   const D_ = (cur, prev) => P ? cpDelta(cur, prev, R.prevLabel) : '';
 
@@ -14633,8 +14754,8 @@ function renderComparePage(){
   const z = { orders:0, sales:0, units:0, aov:0, products:[], promos:[], channelStats:[], reps:[], returning:null, _rawLeads:[] };
   const a = A || z, bb = B || z;
   const bOutside = b.lo && s.bTo < b.lo;
-  const teamTxt = (state.team !== 'all' || state.person)
-    ? `<span class="compare-tag">กรองทีม: <b>${cpEsc(TEAM_LABEL(state.team))}${state.person ? ' › ' + cpEsc(state.person) : ''}</b></span>` : '<span class="compare-tag">ทุกทีม</span>';
+  const teamTxt = (state.team !== 'all' || state.person || state.channel)
+    ? `<span class="compare-tag">กรองทีม: <b>${cpEsc(TEAM_LABEL(state.team))}${state.person ? ' › ' + cpEsc(state.person) : ''}${state.channel ? ' › เพจ ' + cpEsc(state.channel) : ''}</b></span>` : '<span class="compare-tag">ทุกทีม</span>';
 
   const aBtns = CMP_A_PRESETS.map(p => `<button class="btn${s.aPreset === p.id ? ' on' : ''}" data-cmpa="${p.id}">${p.name}</button>`).join('');
   const bBtns = CMP_B_MODES.map(m => `<button class="btn${s.bMode === m.id ? ' on' : ''}" data-cmpb="${m.id}">${m.name}</button>`).join('');
