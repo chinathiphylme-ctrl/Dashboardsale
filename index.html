@@ -13592,7 +13592,7 @@ function cxlReadPancakeCancel(wb,source){
     for(let rowNo=1;rowNo<rows.length;rowNo++){
       const r=rows[rowNo]||[], orderId=String(field(r,'รหัสคำสั่งซื้อ')??'').trim();
       const status=String(field(r,'สถานะ')??'').trim();
-      const continuation=orderId==='50' && status==='50' && current;
+      const continuation=(!orderId||orderId==='50') && (!status||status==='50') && current;   // บรรทัดสินค้าถัดไปของออเดอร์เดียวกัน (Pancake เว้นเลข / สถานะว่าง หรือเป็น 50)
       if(continuation){
         const pn=String(field(r,'สินค้า')||field(r,'รหัสรุ่น')||'').trim();
         if(pn)current.items.push({name:pn,qty:Math.max(0,Number(field(r,'จำนวน'))||0),sku:String(field(r,'รหัสสินค้า')||'')});
@@ -14093,6 +14093,13 @@ async function cxlRestoreUndo(id){
   await cxlRestoreSave(id, 'ยกเลิกการรื้อฟื้นในหน้านี้แล้ว');
   return { id };
 }
+// วันที่นับยอดเริ่มต้น = วันยืนยันคำสั่งซื้อ (แบบเดียวกับออเดอร์ Pancake ปกติ) · ไม่มีค่อยใช้วันสร้างคำสั่งซื้อ
+function cxlRestoreDay(draft){
+  const m = String(draft.confirmed || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(!m) return draft.date || '';
+  const y = +m[3] > 2500 ? +m[3] - 543 : +m[3];
+  return y + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+}
 function cxlRestoreForm(row, draft){
   const r = cxlRestoreReps(draft), pick = r.pick || '';
   const opts = (pick ? '' : '<option value="">— เลือกพนักงาน —</option>')
@@ -14100,7 +14107,7 @@ function cxlRestoreForm(row, draft){
   const fld = (label, html) => '<label>' + label + html + '</label>';
   return '<div class="cxl-muted" style="margin-top:10px">Pancake ตั้งออเดอร์นี้เป็น "ยกเลิก" จึงไม่เคยเข้ายอดขาย — ถ้าออเดอร์นี้นับจริง ตรวจข้อมูลด้านล่างแล้วกด <b>รื้อฟื้นออเดอร์</b> ระบบจะสร้างออเดอร์ขายจากรายการนี้ (ชื่อ เบอร์ สินค้า) แล้วบันทึกลง database</div>'
     + '<div class="cxl-quick-fields cxl-restore-fields">'
-    + fld('นับยอดวันที่', '<input type="date" data-rs-date value="' + cxlE(draft.date || '') + '">')
+    + fld('นับยอดวันที่', '<input type="date" data-rs-date value="' + cxlE(cxlRestoreDay(draft)) + '">')
     + fld('ยอดที่ลูกค้าจ่าย (บาท)', '<input type="number" min="0" step="0.01" data-rs-amount value="' + cxlE(draft.amount == null ? '' : draft.amount) + '">')
     + fld('พนักงานขาย', '<select data-rs-rep>' + opts + '</select>')
     + fld('วิธีชำระเงิน', '<select data-rs-pay><option value="COD">COD (เก็บเงินปลายทาง)</option><option value="โอน">โอนเงิน</option></select>')
