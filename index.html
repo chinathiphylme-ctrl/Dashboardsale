@@ -6141,9 +6141,90 @@ function orderDateOf(lead){ const e = orderEditOf(lead && lead['Lead ID']); retu
 function orderPayEdit(lead){ const e = orderEditOf(lead && lead['Lead ID']); return e && OE_PAYS.includes(e.pay) ? e.pay : null; }
 function orderEditsPublic(){
   const src = ORDER_EDITS || {}, out = { edits:{}, log:[] };
-  Object.entries(src.edits || {}).forEach(([k, e]) => { out.edits[k] = { pay:e.pay || null, date:e.date || null, count:typeof e.count === 'boolean' ? e.count : null, at:e.at }; });
+  Object.entries(src.edits || {}).forEach(([k, e]) => { out.edits[k] = { pay:e.pay || null, date:e.date || null, count:typeof e.count === 'boolean' ? e.count : null, cust:!!(e.phone || e.name), at:e.at }; });
   out.log = (src.log || []).map(x => ({ id:x.id, action:x.action, pay:x.pay || null, date:x.date || null, count:typeof x.count === 'boolean' ? x.count : null, at:x.at }));
   return out;
+}
+
+/* ==================== เบอร์/ชื่อลูกค้าที่คีย์ผิด + เบอร์ที่ไม่ใช่ลูกค้า (owner 2 พ.ย. 69) ====================
+   ทีมคีย์เบอร์ที่ไม่ใช่ของลูกค้าลงออเดอร์ (เช่น ออเดอร์ของลูกค้าเก่าแต่ลงเบอร์ที่ไม่มีทางสั่งซื้อ)
+   -> ลูกค้าคนละคนถูกรวมเป็นคนเดียว ทั้งแดชบอร์ดและ CRM
+   edits[id].phone / .name  แก้แถวของออเดอร์นั้นในข้อมูล (Contacts ของออเดอร์ หรือ GoSell Phone) ทุกครั้งที่คำนวณ
+                            ข้อมูลที่บันทึกลง database จึงเป็นเบอร์ที่แก้แล้ว — ทุกหน้า + CRM ใช้ตาม (ส่วนที่ทุกคนเห็นถูกปิดเบอร์ตามปกติ)
+   edits[id].orig           ค่าเดิมในไฟล์ ใช้คืนค่าตอนยกเลิกการแก้
+   noCust = [{phone, note, known, at}]  เบอร์ที่ไม่มีทางเป็นลูกค้า: ออเดอร์ที่ใช้เบอร์นี้ (ยกเว้นที่มีอยู่แล้วตอนเพิ่ม = known)
+                            แจ้งเตือนทันทีหลังโหลด/อัปไฟล์ จนกว่าจะแก้เบอร์ของออเดอร์นั้น · เก็บเฉพาะข้อมูลจริง (ไม่อยู่ในส่วนที่ทุกคนเห็น) */
+function oeCustRows(id){
+  id = String(id);
+  const leads = [], contacts = [], cids = new Set(), shared = new Set();
+  uploadedFiles.forEach(f => (f.leadsRows || []).forEach(r => { if(String(r['Lead ID']) === id) leads.push(r); }));
+  uploadedFiles.forEach(f => (f.leadsContactsRows || []).forEach(r => { if(String(r['Lead ID']) === id && r['Contact ID'] != null) cids.add(String(r['Contact ID'])); }));
+  if(cids.size){
+    uploadedFiles.forEach(f => (f.leadsContactsRows || []).forEach(r => { if(r['Contact ID'] != null && cids.has(String(r['Contact ID'])) && String(r['Lead ID']) !== id) shared.add(String(r['Lead ID'])); }));
+    uploadedFiles.forEach(f => (f.contactsRows || []).forEach(r => { if(r['Contact ID'] != null && cids.has(String(r['Contact ID']))) contacts.push(r); }));
+  }
+  return { leads, contacts, shared:[...shared] };
+}
+function oeCustNow(rows){
+  const c = rows.contacts[0], l = rows.leads[rows.leads.length - 1];
+  const s = v => v == null ? null : String(v);
+  return { phone:c ? s(c['Phone']) : s(l && l['GoSell Phone']), first:c ? s(c['First Name']) : null, last:c ? s(c['Last Name']) : null, lead:l ? s(l['Lead Name']) : null };
+}
+function oeCustSet(rows, v){
+  rows.contacts.forEach(c => { if(v.phone !== undefined) c['Phone'] = v.phone; if(v.first !== undefined) c['First Name'] = v.first; if(v.last !== undefined) c['Last Name'] = v.last; });
+  rows.leads.forEach(l => { if(!rows.contacts.length && v.phone !== undefined) l['GoSell Phone'] = v.phone; if(v.lead !== undefined) l['Lead Name'] = v.lead; });
+}
+function oeNameParts(name){ const s = String(name || '').trim(), i = s.indexOf(' '); return i < 0 ? { first:s, last:'' } : { first:s.slice(0, i), last:s.slice(i + 1).trim() }; }
+function oeCustVals(e){
+  const v = {};
+  if(e.phone) v.phone = e.phone;
+  if(e.name){ const p = oeNameParts(e.name); v.first = p.first; v.last = p.last; v.lead = e.name; }
+  return v;
+}
+// เรียกตอนเริ่ม recomputeDataset — ไฟล์ที่อัปทับเข้ามาใหม่ (เบอร์เดิมที่ผิด) ก็ถูกแก้ตาม
+function oeCustApply(){
+  Object.entries((ORDER_EDITS && ORDER_EDITS.edits) || {}).forEach(([id, e]) => {
+    if(!e || !(e.phone || e.name)) return;
+    const rows = oeCustRows(id);
+    if(rows.shared.length) return;          // ผู้ติดต่อใช้ร่วมกับออเดอร์อื่น — ไม่แก้ (หน้าแก้ไขออเดอร์ไม่ยอมให้บันทึกกรณีนี้อยู่แล้ว)
+    oeCustSet(rows, oeCustVals(e));
+  });
+}
+function oeNoCust(){ const a = ORDER_EDITS && ORDER_EDITS.noCust; return Array.isArray(a) ? a : []; }
+function oeLeadsWithPhone(phone){
+  const p = normPhoneDigits(phone);
+  return p ? (DATA && DATA.transactionLeads || []).filter(l => leadPhone(l) === p) : [];
+}
+// ออเดอร์ที่ใช้เบอร์ที่ไม่ใช่ลูกค้า และยังไม่ได้แก้ / ไม่ได้อยู่ก่อนเพิ่มเบอร์
+function oeNoCustHits(){
+  const list = oeNoCust(); if(!list.length || !DATA) return [];
+  const out = [];
+  list.forEach(x => {
+    const known = new Set((x.known || []).map(String));
+    oeLeadsWithPhone(x.phone).forEach(l => { const id = String(l['Lead ID']); if(!known.has(id)) out.push({ lead:l, id, phone:normPhoneDigits(x.phone), note:x.note || '' }); });
+  });
+  return out.sort((a, b) => String(b.lead.__date || '').localeCompare(String(a.lead.__date || '')));
+}
+function oeNoCustLine(h){
+  return h.id + ' · ' + (h.lead.__date ? oeDM(h.lead.__date) : '—') + ' · ' + (h.lead['Current User Name'] || 'ไม่ระบุพนักงาน') + ' · เบอร์ ' + h.phone + (h.lead['Lead Name'] ? ' · ' + h.lead['Lead Name'] : '');
+}
+let oeNoCustShown = '';
+// หลังโหลด/อัปไฟล์: เจอออเดอร์ใหม่ที่ใช้เบอร์ที่ไม่ใช่ลูกค้า = เด้งเตือนทันที (ชุดเดิมเตือนครั้งเดียวต่อการเปิดหน้า)
+function oeNoCustAlert(){
+  if(typeof HylmeVault === 'undefined' || HylmeVault.isLocked()) return;
+  const hits = oeNoCustHits(), sig = hits.map(h => h.id).join(',');
+  if(!hits.length || sig === oeNoCustShown) return;
+  oeNoCustShown = sig;
+  HylmeVault.notice('⚠️ มีออเดอร์ใช้เบอร์ที่ไม่ใช่ลูกค้า ' + hits.length + ' ออเดอร์',
+    hits.slice(0, 15).map(oeNoCustLine).join('\n') + (hits.length > 15 ? '\n… อีก ' + (hits.length - 15) + ' ออเดอร์' : '')
+    + '\n\nเบอร์นี้ไม่มีทางสั่งซื้อ — ออเดอร์นี้น่าจะคีย์เบอร์ลูกค้าผิด ถามทีมแล้วแก้ที่ หลังบ้าน → แก้ไขออเดอร์ → ใส่เบอร์ / ชื่อลูกค้าจริง'
+    + '\nแก้แล้วการเตือนจะหายเอง');
+}
+function oeNoCustBanner(){
+  if(typeof HylmeVault === 'undefined' || HylmeVault.isLocked()) return '';
+  const hits = oeNoCustHits(); if(!hits.length) return '';
+  return '⛔ มีออเดอร์ใช้<b>เบอร์ที่ไม่ใช่ลูกค้า</b> ' + hits.length + ' ออเดอร์: ' + hits.slice(0, 6).map(h => oeEsc(h.id)).join(', ') + (hits.length > 6 ? ' …' : '')
+    + ' — แก้ที่ หลังบ้าน → แก้ไขออเดอร์ (ใส่เบอร์ลูกค้าจริง)';
 }
 
 function mergeReturnReviewDecisions(){
@@ -6198,6 +6279,9 @@ function afterFilesLoaded(){
     if(pancakeDateWarnings.length){
       bannerMsgs.push('⚠️ ไฟล์ Pancake ต่อไปนี้ไม่มีคอลัมน์ "วันที่ยืนยันคำสั่งซื้อ" ระบบจึงใช้ <b>วันที่สร้างคำสั่งซื้อ</b> แทน — ยอดอาจตกคนละวันกับที่ปิดการขายจริง ตอน export จาก Pancake ให้ติ๊กคอลัมน์นี้เพิ่มด้วย: ' + pancakeDateWarnings.join(', '));
     }
+    const noCustMsg = oeNoCustBanner();     // owner 2 พ.ย. 69
+    if(noCustMsg) bannerMsgs.unshift(noCustMsg);
+    setTimeout(oeNoCustAlert, 0);
     if(bannerMsgs.length){
       banner.innerHTML = bannerMsgs.join('<br>');
       banner.classList.add('show');
@@ -9471,6 +9555,7 @@ function reassignTraderOwner(r){
 }
 function recomputeDataset(options = {}){
   clearError();
+  oeCustApply();      // เบอร์/ชื่อลูกค้าที่แก้ไว้ในหน้าแก้ไขออเดอร์ (owner 2 พ.ย. 69)
   // 1) merge leads across files, later files win on duplicate Lead ID
   const leadMap = new Map();
   uploadedFiles.forEach(f => (f.leadsRows||[]).forEach(r => {
@@ -12776,29 +12861,97 @@ function oeFind(q){
 }
 function oeSourcePay(lead){ if(isMarketplaceOrder(lead)) return PAYMENT_MARKETPLACE; return PAYMENT_OVERRIDES[lead['Lead ID']] || paymentMethod(lead['Lead Intro']); }
 function oeDM(s){ return s ? new Date(s + 'T00:00:00').toLocaleDateString('th-TH', {day:'numeric', month:'short', year:'2-digit'}) : '—'; }
-function oeDesc(e){ const a = []; if(e.count === true) a.push('นับเป็นยอดขาย'); if(e.count === false) a.push('ไม่นับยอด'); if(e.pay) a.push('วิธีชำระ → ' + e.pay); if(e.date) a.push('นับยอดวันที่ ' + oeDM(e.date)); return a.join(' · ') || '—'; }
+function oeDesc(e){ const a = []; if(e.count === true) a.push('นับเป็นยอดขาย'); if(e.count === false) a.push('ไม่นับยอด'); if(e.pay) a.push('วิธีชำระ → ' + e.pay); if(e.date) a.push('นับยอดวันที่ ' + oeDM(e.date)); if(e.phone) a.push('เบอร์ลูกค้า → ' + e.phone); if(e.name) a.push('ชื่อลูกค้า → ' + e.name); if(!e.phone && !e.name && e.cust) a.push('แก้เบอร์/ชื่อลูกค้า'); return a.join(' · ') || '—'; }
 function oeRecompute(){ if(DATA){ if(!recomputeDataset()){ state.team = 'all'; state.person = ''; state.channel = ''; recomputeDataset(); } renderAll(); renderBackendCards(true); } }
 async function oeCommit(id, ed, reason){
   if(HylmeVault.isLocked() && !(await HylmeVault.promptUnlock('ใส่รหัสผ่านเพื่อแก้ไขออเดอร์และบันทึกลง database'))) return;
   ORDER_EDITS = ORDER_EDITS || {}; ORDER_EDITS.edits = ORDER_EDITS.edits || {}; ORDER_EDITS.log = ORDER_EDITS.log || [];
   const at = new Date().toISOString();
-  const any = !!(ed.pay || ed.date || typeof ed.count === 'boolean');
+  const any = !!(ed.pay || ed.date || typeof ed.count === 'boolean' || ed.phone || ed.name);
+  // เบอร์/ชื่อ: คืนค่าเดิมในไฟล์ก่อน แล้ว recompute ค่อยใส่ค่าที่แก้ใหม่ (ยกเลิกการแก้ = เหลือค่าเดิม)
+  const prev = ORDER_EDITS.edits[id], rows = oeCustRows(id);
+  if(prev && prev.orig) oeCustSet(rows, prev.orig);
+  if(ed.phone || ed.name) ed.orig = (prev && prev.orig) || oeCustNow(rows);
   if(any) ORDER_EDITS.edits[id] = Object.assign({}, ed, { reason, at });
   else delete ORDER_EDITS.edits[id];
-  ORDER_EDITS.log.push({ id, action:any ? 'set' : 'clear', pay:ed.pay || null, date:ed.date || null, count:typeof ed.count === 'boolean' ? ed.count : null, reason, at });
+  ORDER_EDITS.log.push({ id, action:any ? 'set' : 'clear', pay:ed.pay || null, date:ed.date || null, count:typeof ed.count === 'boolean' ? ed.count : null,
+    phone:ed.phone || null, name:ed.name || null, reason, at });
   oeSel = id; oeRecompute();
   if(!HylmeVault.apiMode()){ HylmeVault.notice('แก้ในหน้านี้แล้ว', 'หน้านี้ไม่ได้ต่อ database — การแก้อยู่ในหน้านี้เท่านั้น'); return; }
   await HylmeVault.publishFromPage();
+}
+/* ---- เบอร์ที่ไม่ใช่ลูกค้า (owner 2 พ.ย. 69) ---- */
+const oeLink = id => '<a href="#" data-oe="' + oeEsc(id) + '">' + oeEsc(id) + '</a>';
+function oeNoCustHitBox(){
+  const hits = oeNoCustHits(); if(!hits.length) return '';
+  return '<div style="margin-bottom:12px;padding:10px 14px;border:1px solid var(--critical);border-radius:12px;color:var(--text-primary);">'
+    + '<b style="color:var(--critical)">⛔ ออเดอร์ใช้เบอร์ที่ไม่ใช่ลูกค้า ' + hits.length + ' ออเดอร์</b> — กดเลขออเดอร์ แล้วใส่เบอร์ / ชื่อลูกค้าจริง'
+    + hits.map(h => '<div style="font-size:13px;margin-top:4px;">' + oeLink(h.id) + ' · ' + oeEsc(oeNoCustLine(h).slice(h.id.length + 3)) + '</div>').join('') + '</div>';
+}
+function oeNoCustSection(locked){
+  const head = '<div style="margin-top:18px;font-weight:700;font-size:13px;">เบอร์ที่ไม่ใช่ลูกค้า — มีออเดอร์ใหม่ใช้เบอร์นี้ = เตือนทันที</div>';
+  if(locked) return head + '<div class="card-sub" style="margin-top:6px;">🔒 ใส่รหัสเพื่อดู / เพิ่มเบอร์</div>';
+  const list = oeNoCust();
+  const rows = list.map((x, i) => {
+    const known = new Set((x.known || []).map(String)), all = oeLeadsWithPhone(x.phone).map(l => String(l['Lead ID']));
+    const old = all.filter(id => known.has(id)), fresh = all.filter(id => !known.has(id));
+    return '<tr><td>' + oeEsc(x.phone) + '</td><td>' + oeEsc(x.note || '—') + '</td>'
+      + '<td>' + (fresh.length ? '<span style="color:var(--critical)">⛔ ' + fresh.map(oeLink).join(', ') + '</span>' : '—') + '</td>'
+      + '<td>' + (old.length ? old.map(oeLink).join(', ') : '—') + '</td>'
+      + '<td><button class="btn" data-ncdel="' + i + '">เอาออก</button></td></tr>';
+  }).join('');
+  return head
+    + '<div class="card-sub" style="margin-top:4px;">เช่น เบอร์ร้าน / เบอร์พนักงาน / เบอร์มั่ว — ออเดอร์ที่มีอยู่แล้วตอนเพิ่มเบอร์จะไม่เตือน (แก้เองได้ด้วยการกดเลขออเดอร์)</div>'
+    + (rows ? '<table class="order-table" style="margin-top:8px;"><thead><tr><th>เบอร์</th><th>หมายเหตุ</th><th>ออเดอร์ใหม่ที่ต้องแก้</th><th>ออเดอร์เดิม (ไม่เตือน)</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>' : '')
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">'
+    + '<input id="ncPhone" inputmode="tel" placeholder="เบอร์ เช่น 0812345678" style="max-width:170px;">'
+    + '<input id="ncNote" placeholder="หมายเหตุ เช่น เบอร์พนักงาน" style="max-width:240px;">'
+    + '<button class="btn" id="ncAdd">เพิ่ม + ส่งขึ้น Database</button></div>';
+}
+async function oeNoCustCommit(change, logEntry){
+  if(HylmeVault.isLocked() && !(await HylmeVault.promptUnlock('ใส่รหัสผ่านเพื่อแก้รายการเบอร์และบันทึกลง database'))) return;
+  ORDER_EDITS = ORDER_EDITS || {}; ORDER_EDITS.edits = ORDER_EDITS.edits || {}; ORDER_EDITS.log = ORDER_EDITS.log || [];
+  ORDER_EDITS.noCust = oeNoCust().slice();
+  change(ORDER_EDITS.noCust);
+  ORDER_EDITS.log.push(Object.assign({ id:'เบอร์ที่ไม่ใช่ลูกค้า', at:new Date().toISOString() }, logEntry));
+  oeNoCustShown = oeNoCustHits().map(h => h.id).join(',');
+  oeRecompute();
+  if(!HylmeVault.apiMode()){ HylmeVault.notice('แก้ในหน้านี้แล้ว', 'หน้านี้ไม่ได้ต่อ database — การแก้อยู่ในหน้านี้เท่านั้น'); return; }
+  await HylmeVault.publishFromPage();
+}
+function oeBindNoCust(host){
+  const add = document.getElementById('ncAdd');
+  if(add) add.onclick = () => {
+    const p = normPhoneDigits(document.getElementById('ncPhone').value), note = document.getElementById('ncNote').value.trim();
+    if(!isThaiPhone(p)){ HylmeVault.notice('เบอร์ไม่ถูกต้อง', 'ใส่เบอร์ 9–10 หลัก เช่น 0812345678'); return; }
+    if(oeNoCust().some(x => normPhoneDigits(x.phone) === p)){ HylmeVault.notice('มีเบอร์นี้แล้ว', p); return; }
+    const known = oeLeadsWithPhone(p).map(l => String(l['Lead ID']));
+    oeNoCustCommit(list => list.push({ phone:p, note, known, at:new Date().toISOString() }), { action:'nocust-add', phone:p, reason:note });
+  };
+  host.querySelectorAll('[data-ncdel]').forEach(b => b.onclick = () => {
+    const x = oeNoCust()[+b.dataset.ncdel]; if(!x) return;
+    oeNoCustCommit(list => list.splice(+b.dataset.ncdel, 1), { action:'nocust-del', phone:x.phone, reason:'เอาออกจากรายการ' });
+  });
 }
 function renderOrderEditCard(){
   const host = document.getElementById('orderEditCard'); if(!host) return;
   const edits = Object.entries((ORDER_EDITS && ORDER_EDITS.edits) || {}).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)));
   const lead = oeSel ? oeFind(oeSel) : null;
+  const locked = HylmeVault.isLocked();
   let box = '';
   if(oeSel && !lead) box = '<div class="card-sub" style="margin-top:10px;">ไม่พบออเดอร์ ' + oeEsc(oeSel) + ' ในข้อมูลชุดนี้</div>';
   else if(lead){
     const id = lead['Lead ID'], e = orderEditOf(id) || {}, srcDate = bizDateStr(lead['Lead Purchase Date']), srcPay = oeSourcePay(lead);
     const curPay = paymentMethodOf(lead), payEditable = OE_PAYS.includes(srcPay) || !!e.pay;
+    // เบอร์/ชื่อลูกค้า (owner 2 พ.ย. 69) — ข้อมูลจริงเท่านั้น
+    const cr = locked ? null : oeCustRows(id), curPhone = locked ? '' : leadPhone(lead);
+    const ncHit = !locked && oeNoCust().some(x => normPhoneDigits(x.phone) === curPhone);
+    const custFields = locked ? '' : cr.shared.length
+      ? '<div class="card-sub" style="width:100%;">เบอร์/ชื่อลูกค้า: ผู้ติดต่อของออเดอร์นี้ใช้ร่วมกับ ' + cr.shared.slice(0, 5).map(oeEsc).join(', ') + ' — แก้ที่นี่ไม่ได้</div>'
+      : '<label style="font-size:12px;font-weight:600;">เบอร์ลูกค้า' + (ncHit ? ' <span style="color:var(--critical)">⛔ ไม่ใช่เบอร์ลูกค้า</span>' : '')
+        + '<br><input id="oePhone" inputmode="tel" value="' + oeEsc(curPhone) + '" placeholder="0xxxxxxxxx" style="max-width:150px;"></label>'
+        + '<label style="font-size:12px;font-weight:600;min-width:200px;">ชื่อลูกค้า<br><input id="oeName" value="' + oeEsc(lead['Lead Name'] || '') + '" style="width:100%"></label>'
+        + '<div class="card-sub" id="oeNameHint" style="width:100%;margin:0;"></div>';
     box = '<div style="margin-top:12px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface-1);">'
       + '<div style="font-weight:700;">' + oeEsc(id) + ' · ' + oeEsc(lead['Lead Name'] || '') + ' · ' + fmtBaht(withVat(lead['Lead Value']))
       + (lead.__cancelled ? ' · <span style="color:var(--critical)">ไม่นับยอด (' + oeEsc(lead.__cancelHow || 'ยกเลิก') + ')</span>' : '') + '</div>'
@@ -12809,22 +12962,24 @@ function renderOrderEditCard(){
       + '<label style="font-size:12px;font-weight:600;">นับยอด<br><select id="oeCount"><option value="yes"' + (lead.__cancelled ? '' : ' selected') + '>นับเป็นยอดขาย</option><option value="no"' + (lead.__cancelled ? ' selected' : '') + '>ไม่นับยอด</option></select></label>'
       + '<label style="font-size:12px;font-weight:600;">วันที่นับยอด<br><input type="date" id="oeDate" value="' + oeEsc(lead.__date || srcDate) + '"></label>'
       + (payEditable ? '<label style="font-size:12px;font-weight:600;">วิธีชำระเงิน<br><select id="oePay">' + OE_PAYS.map(p => '<option' + (p === curPay ? ' selected' : '') + '>' + oeEsc(p) + '</option>').join('') + '</select></label>' : '')
+      + custFields
       + '<label style="font-size:12px;font-weight:600;flex:1;min-width:220px;">เหตุผล (ต้องใส่)<br><input id="oeReason" style="width:100%" placeholder="เช่น ลูกค้าโอนวันที่ 1 แต่กดยืนยันวันที่ 2"></label>'
       + '<button class="btn primary" id="oeSave">บันทึก + ส่งขึ้น Database</button>'
       + (e.at ? '<button class="btn" id="oeUndo">ยกเลิกการแก้ของออเดอร์นี้</button>' : '')
       + '</div></div>';
   }
-  const locked = HylmeVault.isLocked();
   const list = edits.length
     ? '<table class="order-table" style="margin-top:8px;"><thead><tr><th>ออเดอร์</th><th>แก้อะไร</th><th>เหตุผล</th><th>เมื่อ</th></tr></thead><tbody>'
       + edits.map(([id, e]) => '<tr><td><a href="#" data-oe="' + oeEsc(id) + '">' + oeEsc(id) + '</a></td><td>' + oeEsc(oeDesc(e)) + '</td><td>'
         + oeEsc(e.reason || (locked ? '🔒 ใส่รหัสเพื่อดู' : '—')) + '</td><td>' + oeEsc(new Date(e.at).toLocaleString('th-TH', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})) + '</td></tr>').join('')
       + '</tbody></table>'
     : '<div class="card-sub" style="margin-top:6px;">ยังไม่มีออเดอร์ที่แก้</div>';
-  host.innerHTML = '<div class="card-head"><div><h3>แก้ไขออเดอร์ — วิธีชำระเงิน / วันที่นับยอด</h3>'
+  host.innerHTML = (locked ? '' : oeNoCustHitBox()) + '<div class="card-head"><div><h3>แก้ไขออเดอร์ — วิธีชำระเงิน / วันที่นับยอด / เบอร์ลูกค้า</h3>'
     + '<div class="card-sub">ใช้เมื่อข้อมูลในไฟล์ผิด เช่น ลงเป็น COD แต่ลูกค้าโอน · ลูกค้าโอนวันที่ 1 แต่ทีมกดยืนยันวันที่ 2 — ไฟล์ต้นทางไม่ถูกแก้ · การแก้เก็บตามเลขออเดอร์และไปกับข้อมูลทุกรอบ (อัปไฟล์ใหม่ก็ยังอยู่) · CRM_V3 ใช้ตามในการอัปเดตรอบถัดไป</div></div></div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><input id="oeQ" placeholder="เลขออเดอร์ เช่น PK-10127" value="' + oeEsc(oeSel || '') + '" style="max-width:240px;"><button class="btn" id="oeGo">ค้นหา</button></div>'
-    + box + '<div style="margin-top:14px;font-weight:700;font-size:13px;">ออเดอร์ที่แก้แล้ว (' + edits.length + ')</div>' + list;
+    + box + '<div style="margin-top:14px;font-weight:700;font-size:13px;">ออเดอร์ที่แก้แล้ว (' + edits.length + ')</div>' + list
+    + oeNoCustSection(locked);
+  oeBindNoCust(host);
   const q = document.getElementById('oeQ'), go = () => { oeSel = q.value.trim() || null; renderOrderEditCard(); };
   document.getElementById('oeGo').onclick = go;
   q.onkeydown = ev => { if(ev.key === 'Enter') go(); };
@@ -12841,7 +12996,32 @@ function renderOrderEditCard(){
     if(cs && cs.value === 'no' && !srcCancelled) ed.count = false;
     if(d !== srcDate) ed.date = d;
     if(ps && ps.value !== srcPay) ed.pay = ps.value;
+    // เบอร์/ชื่อลูกค้า: เทียบกับค่าในไฟล์ (ก่อนแก้) — ไม่มีช่อง (ล็อกอยู่ / ผู้ติดต่อใช้ร่วม) = คงค่าที่แก้ไว้เดิม
+    const pi = document.getElementById('oePhone'), ni = document.getElementById('oeName');
+    if(pi && ni){
+      const src = ex.orig || oeCustNow(oeCustRows(id));
+      const srcPhone = ex.orig ? cleanPhone(src.phone, null) : leadPhone(lead), np = normPhoneDigits(pi.value), nn = ni.value.trim();
+      if(np !== srcPhone){
+        if(!isThaiPhone(np)){ HylmeVault.notice('เบอร์ไม่ถูกต้อง', 'ใส่เบอร์ลูกค้า 9–10 หลัก เช่น 0812345678'); return; }
+        if(oeNoCust().some(x => normPhoneDigits(x.phone) === np)){ HylmeVault.notice('เบอร์นี้ไม่ใช่ลูกค้า', np + ' อยู่ในรายการเบอร์ที่ไม่ใช่ลูกค้า — ใส่เบอร์ลูกค้าจริง'); return; }
+        ed.phone = np;
+      }
+      if(nn && nn !== String(src.lead || '').trim()) ed.name = nn;
+    } else { if(ex.phone) ed.phone = ex.phone; if(ex.name) ed.name = ex.name; }
     oeCommit(id, ed, reason);
+  };
+  // ใส่เบอร์ใหม่ -> เสนอชื่อจากออเดอร์ล่าสุดของเบอร์นั้น (ลูกค้าเดิม)
+  const pi = document.getElementById('oePhone');
+  if(pi && lead) pi.oninput = () => {
+    const ni = document.getElementById('oeName'), hint = document.getElementById('oeNameHint'), np = normPhoneDigits(pi.value);
+    if(!ni || !hint) return;
+    if(!isThaiPhone(np)){ hint.textContent = ''; return; }
+    const prev = oeLeadsWithPhone(np).filter(l => l['Lead ID'] !== lead['Lead ID']).sort((a, b) => String(b.__date || '').localeCompare(String(a.__date || '')));
+    if(!prev.length){ hint.textContent = 'เบอร์นี้ยังไม่เคยมีออเดอร์ — จะเป็นลูกค้าใหม่'; return; }
+    const ca = DATA.contactAccountByLead.get(prev[0]['Lead ID']), c = ca && ca.contact;
+    const nm = (c ? [c['First Name'], c['Last Name']].map(s => String(s == null ? '' : s).trim()).filter(Boolean).join(' ') : '') || String(prev[0]['Lead Name'] || '').trim();
+    if(nm) ni.value = nm;
+    hint.textContent = 'ลูกค้าเดิม: ' + prev.length + ' ออเดอร์ (ล่าสุด ' + prev[0]['Lead ID'] + ' · ' + oeDM(prev[0].__date) + ') — ใส่ชื่อตามออเดอร์ล่าสุดให้แล้ว แก้ได้';
   };
   const undo = document.getElementById('oeUndo');
   if(undo && lead) undo.onclick = () => oeCommit(lead['Lead ID'], {}, 'ยกเลิกการแก้');
