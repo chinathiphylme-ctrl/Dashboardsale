@@ -7598,6 +7598,36 @@ const PREORDER_SKUS = new Set(['HM-GB-01']);                 // HM-GB-01 = GABA
 const PREORDER_NAME_KEYWORDS = ['gaba','กาบา','กาบ้า'];       // เผื่อกรณีไม่มี SKU ตรง ให้ดูจากชื่อสินค้า
 const STATUS_FULFILL = 'Fulfill (อนุมัติ)';
 const STATUS_ONHOLD  = 'OnHold (จอง)';
+// (4b) หมายเหตุภายในจาก Pancake ที่นัดวันจัดส่ง เช่น "จัดส่งวันที่ 25 พ.ย." -> ถ้าวันนั้นยังมาไม่ถึง (หลังวันที่ export)
+//      ให้ทั้งออเดอร์เป็น OnHold (จอง) ไม่ว่าจะติ๊กอนุมัติ SKU ไว้หรือไม่ (3 พ.ย. 69) — ถึงวันแล้ว/ผ่านไปแล้ว ใช้กฎเดิม
+const MC_TH_MONTHS = [['ม.ค.','มกราคม','มกรา'],['ก.พ.','กุมภาพันธ์','กุมภา'],['มี.ค.','มีนาคม','มีนา'],['เม.ย.','เมษายน','เมษา'],
+  ['พ.ค.','พฤษภาคม','พฤษภา'],['มิ.ย.','มิถุนายน','มิถุนา'],['ก.ค.','กรกฎาคม','กรกฎา'],['ส.ค.','สิงหาคม','สิงหา'],
+  ['ก.ย.','กันยายน','กันยา'],['ต.ค.','ตุลาคม','ตุลา'],['พ.ย.','พฤศจิกายน','พฤศจิกา'],['ธ.ค.','ธันวาคม','ธันวา']];
+const MC_TH_MONTH_RE = MC_TH_MONTHS.flat().sort((a, b) => b.length - a.length)
+  .map(s => s.replace(/\./g, '\\.?')).join('|');
+const MC_SHIP_DATE_RE = new RegExp('(?:จัดส่ง|ส่งของ|ส่งสินค้า|ส่ง)\\s*(?:ได้)?\\s*(?:ภายใน|ช่วง)?\\s*(?:วันที่|วัน|วท\\.?)?\\s*'
+  + '(\\d{1,2})\\s*(?:(' + MC_TH_MONTH_RE + ')|[/.\\-](\\d{1,2}))\\s*(?:[/.\\-]?\\s*(\\d{4}|\\d{2})(?!\\d))?');
+// -> { date: Date, label: 'd/m/yyyy' } ของวันนัดจัดส่งที่ "ยังไม่ถึง" | null
+function mcShipHoldDate(note, today){
+  const m = String(note || '').match(MC_SHIP_DATE_RE);
+  if(!m) return null;
+  const day = Number(m[1]);
+  let mon = m[3] ? Number(m[3]) - 1 : MC_TH_MONTHS.findIndex(v => v.some(s => s.replace(/\./g, '') === m[2].replace(/\./g, '')));
+  if(mon < 0 || mon > 11 || day < 1 || day > 31) return null;
+  const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let y;
+  if(m[4]){
+    y = Number(m[4]);
+    if(m[4].length === 2) y += (y >= 40 ? 2500 : 2000);   // 69 -> 2569 (พ.ศ.), 26 -> 2026
+    if(y > 2400) y -= 543;
+  } else {
+    y = t.getFullYear();
+    if(new Date(y, mon, day) < new Date(t.getTime() - 180 * 864e5)) y++;   // "5 ม.ค." ที่พิมพ์ตอนปลายปี = ปีหน้า
+  }
+  const d = new Date(y, mon, day);
+  if(d.getMonth() !== mon) return null;                    // 31 พ.ย. ฯลฯ
+  return d > t ? { date: d, label: `${day}/${mon + 1}/${y + 543}` } : null;
+}
 
 // (5) Olive Oil (HM-OL-01): ถ้าซื้อ "1 ขวด" ให้ตั้งราคาในไฟล์ MC เป็น 300 (รวมค่าส่งแล้ว) แทนราคาปกติ ~250
 const OLIVE_SKUS = new Set(['HM-OL-01']);
@@ -7782,7 +7812,10 @@ function buildMcRows(leads, products, contactAccountByLead){
     // ---- สถานะออเดอร์ (order-level: MC อ่านเฉพาะบรรทัดแรกของออเดอร์) ----
     // อนุมัติ (Fulfill) ก็ต่อเมื่อสินค้าในออเดอร์ "อนุมัติครบทุกตัว" (ตามที่ติ๊กในหน้าเว็บ)
     // ถ้ามีสินค้าที่ยัง "จอง" ปนอยู่แม้แต่ตัวเดียว -> ทั้งออเดอร์เป็น OnHold (จอง)
-    const status = items.every(isSkuApproved) ? STATUS_FULFILL : STATUS_ONHOLD;
+    // ยกเว้น: หมายเหตุภายในนัดวันจัดส่งที่ยังไม่ถึง -> OnHold (จอง) ทั้งออเดอร์
+    const adminNote = String(lead['Internal Notes'] || '').replace(/\r\n?/g, '\n').trim();
+    const shipHold = mcShipHoldDate(adminNote, new Date());
+    const status = (!shipHold && items.every(isSkuApproved)) ? STATUS_FULFILL : STATUS_ONHOLD;
     const preorderItems = items.filter(isPreorderItem);
     const extraNotes = [];
     if(preorderItems.length){
@@ -7798,7 +7831,6 @@ function buildMcRows(leads, products, contactAccountByLead){
       : mapSalesPerson(lead['Current User Name']);
     if(chan.note) notes.push(chan.note);   // ช่องทางขายที่ระบุไม่ได้ = ต้องตรวจสอบ (นับเป็น flagged)
     // Admin instructions lead the MC internal note; retain existing data-quality and pre-order notes.
-    const adminNote = String(lead['Internal Notes'] || '').replace(/\r\n?/g, '\n').trim();
     const allNotes = (adminNote ? ['หมายเหตุภายใน: ' + adminNote] : []).concat(notes, extraNotes);
 
     // ---- ราคาต่อหน่วย: ยอดรวม (Price x QTY) ต้องตรงกับที่เก็บลูกค้าจริง "เป๊ะ" ไม่ใช่ประมาณการ ----
@@ -7869,6 +7901,7 @@ function buildMcRows(leads, products, contactAccountByLead){
           name: first ? name : '', phone: first ? phone : '', address: first ? address : '', postcode: first ? postcode : '',
           sku, price, qty: g.qty,
           deliveryMode: first ? deliveryMode : '', status: first ? status : '',
+          shipHold: first && shipHold ? shipHold.label : '',
           shopOrderNumber: first ? leadId : '', salesChannel: first ? chan.value : '',
           salesPerson: first ? mappedPerson : '', notes: first ? allNotes.join('; ') : '',
         });
@@ -11922,11 +11955,12 @@ function renderMcCard(){
   const ordersReady = firstRows.length;
   const nFulfill = firstRows.filter(r => r.status === STATUS_FULFILL).length;
   const nHold = firstRows.filter(r => r.status === STATUS_ONHOLD).length;
+  const nShipHold = firstRows.filter(r => r.shipHold).length;
   const multiLineOrders = firstRows.length ? built.rows.length - firstRows.length : 0;
   const el = document.getElementById('mcSummary');
   el.innerHTML = `
     <div>${p.label} • พร้อม export <b>${fmtNum(ordersReady)}</b> ออเดอร์ (${fmtNum(built.rows.length)} รายการสินค้า${multiLineOrders ? ` — มีบรรทัดสินค้าเพิ่มอีก ${fmtNum(multiLineOrders)} บรรทัดจากออเดอร์ที่ซื้อหลายชนิด` : ''})</div>
-    <div>สถานะ: อนุมัติ (Fulfill) <b>${fmtNum(nFulfill)}</b> • จอง (OnHold) <b>${fmtNum(nHold)}</b> ออเดอร์</div>
+    <div>สถานะ: อนุมัติ (Fulfill) <b>${fmtNum(nFulfill)}</b> • จอง (OnHold) <b>${fmtNum(nHold)}</b> ออเดอร์${nShipHold ? ` (ในนั้น <b>${fmtNum(nShipHold)}</b> ออเดอร์จองเพราะหมายเหตุภายในนัดวันจัดส่งที่ยังไม่ถึง)` : ''}</div>
     <div>ข้าม <b>${fmtNum(built.skipped.length)}</b> ออเดอร์ — ไม่ทราบวิธีชำระเงิน หรือไม่มี SKU</div>
     <div>มี <b>${fmtNum(built.flagged.length)}</b> ออเดอร์ที่ข้อมูลไม่ครบ (ยัง export ให้ แต่ควรตรวจสอบก่อนอัปโหลดเข้า MC)</div>
   `;
@@ -11948,7 +11982,7 @@ function renderMcCard(){
       <td class="num">${fmtNum(r.qty)}</td>
       <td class="num">${fmtBahtFull(r.price)}</td>
       <td>${isFirst ? r.deliveryMode : ''}</td>
-      <td>${isFirst ? r.status : ''}</td>
+      <td>${isFirst ? r.status + (r.shipHold ? `<div style="font-size:11px;color:var(--text-muted);">นัดส่ง ${r.shipHold}</div>` : '') : ''}</td>
       <td>${isFirst ? r.salesPerson : ''}</td>
       <td>${isFirst ? r.salesChannel : ''}</td>
       <td style="white-space:pre-wrap;min-width:220px;">${isFirst ? mcNoteHtml(r.notes) : ''}</td>
@@ -11976,7 +12010,7 @@ function renderFooter(){
     <div style="margin-top:4px;">ไม่รวมออเดอร์ที่ถูกลบ (Deleted) จำนวน ${DATA.meta.excludedCount} รายการ • นับรวมออเดอร์แจกฟรี/มูลค่า 0 บาท (เช่น สิทธิพิเศษวันเกิด แคมเปญแจกฟรี) เป็น<b>จำนวนออเดอร์</b>ด้วย แต่<b>ไม่นับเป็นยอดขาย</b> — ออเดอร์ที่ Pancake ระบุ "มูลค่าหลังหักส่วนลด = 0" จะถูกบันทึกเป็น ฿0 ไม่ถอยไปใช้ราคาเต็มอีกต่อไป (เดิมของแจกแคมเปญวิ่ง 37 กล่องถูกนับเป็นยอดขาย ฿18,620 — แก้แล้ว) • ยอดขายคำนวณจาก Lead Value (รวมค่าจัดส่ง) แล้วบวก VAT 7% เพิ่มเข้าไป • "หน่วยที่ขาย" นับเฉพาะรายการสินค้า ไม่รวมค่าจัดส่ง • <b>รอบวันนับแบบเที่ยงคืนถึงเที่ยงคืน</b> ตามปฏิทิน (ออเดอร์ที่ปิดเลยเที่ยงคืนไปเล็กน้อยจะนับเป็นยอดของวันถัดไปตามเวลาที่บันทึกจริง) • สัปดาห์เริ่มวันอาทิตย์ และ<b>ตัดตามรอบเดือน</b> (สัปดาห์ที่คร่อม 2 เดือนจะถูกแยกเป็น 2 ช่วง เช่น 28–30 มิ.ย. และ 1–4 ก.ค.) • เดือนนับตามปฏิทิน (วันที่ 1 ถึงวันสุดท้ายของเดือน) • ตัวเลขเงินทุกจุดในหน้านี้เป็นยอดหลังบวก VAT 7% แล้ว</div>
     <div style="margin-top:4px;">Export Contact Template: 1 แถว = 1 ลูกค้า (รวมออเดอร์ที่เบอร์โทรเดียวกัน) • order_count / succeed_order_count / purchased_amount คำนวณจากออเดอร์ในช่วงที่เลือกเท่านั้น • ลูกค้าที่ไม่มีเบอร์โทรใช้ได้จะยัง export ให้ พร้อมหมายเหตุในคอลัมน์ note • คอลัมน์ owner ใส่ Thanyanat Noipuk ทุกแถว ส่วน created_by ใช้ชื่อผู้ดูแลจริงเป็นภาษาอังกฤษ • source ตัดคำว่า Facebook นำหน้าออก</div>
     <div style="margin-top:4px;">Conversion Rate = ปิดการขาย (แอดมิน จากไฟล์ leads) ÷ แชทใหม่ (จากไฟล์ "สถิติหน้า" ของ Pancake) — ไม่ใช้คอลัมน์ % ของ Pancake เพราะเป็น % รายวันที่บวกกันไม่ได้ • เรียงตามลำดับเพจ: Hylme → ครบจบเรื่องไขมัน → ครบจบเรื่องนอน → ครบจบเรื่องผิว</div>
-    <div style="margin-top:4px;">Export MC Template: หมายเหตุภายในจาก Pancake จะส่งไปยังช่อง Shop Internal Notes ของ MC พร้อมหมายเหตุเดิมของระบบ • "Price" คำนวณจากราคาหลังหักส่วนลด + VAT ((มูลค่าก่อน VAT ÷ จำนวนชิ้น) × 1.07) • ออเดอร์ที่ไม่มีคำว่า "COD"/"โอน" ใน Lead Intro จะไม่ export ให้ (ต้องตรวจสอบเองก่อน) • เขต กทม./ปริมณฑล ที่ใช้ตัดสิน DHL vs EMS คือ กรุงเทพฯ, นนทบุรี, ปทุมธานี, สมุทรปราการ, สมุทรสาคร, นครปฐม • ออเดอร์ที่มี Olive Oil ส่ง EMS เสมอ</div>
+    <div style="margin-top:4px;">Export MC Template: หมายเหตุภายในจาก Pancake จะส่งไปยังช่อง Shop Internal Notes ของ MC พร้อมหมายเหตุเดิมของระบบ • หมายเหตุภายในที่นัดวันจัดส่ง (เช่น "จัดส่งวันที่ 25 พ.ย.") และวันนั้นยังไม่ถึง จะเป็น OnHold (จอง) ทั้งออเดอร์ •"Price" คำนวณจากราคาหลังหักส่วนลด + VAT ((มูลค่าก่อน VAT ÷ จำนวนชิ้น) × 1.07) • ออเดอร์ที่ไม่มีคำว่า "COD"/"โอน" ใน Lead Intro จะไม่ export ให้ (ต้องตรวจสอบเองก่อน) • เขต กทม./ปริมณฑล ที่ใช้ตัดสิน DHL vs EMS คือ กรุงเทพฯ, นนทบุรี, ปทุมธานี, สมุทรปราการ, สมุทรสาคร, นครปฐม • ออเดอร์ที่มี Olive Oil ส่ง EMS เสมอ</div>
   `;
 }
 
