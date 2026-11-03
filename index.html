@@ -6141,7 +6141,9 @@ function orderDateOf(lead){ const e = orderEditOf(lead && lead['Lead ID']); retu
 function orderPayEdit(lead){ const e = orderEditOf(lead && lead['Lead ID']); return e && OE_PAYS.includes(e.pay) ? e.pay : null; }
 function orderEditsPublic(){
   const src = ORDER_EDITS || {}, out = { edits:{}, log:[] };
-  Object.entries(src.edits || {}).forEach(([k, e]) => { out.edits[k] = { pay:e.pay || null, date:e.date || null, count:typeof e.count === 'boolean' ? e.count : null, cust:!!(e.phone || e.name), at:e.at }; });
+  Object.entries(src.edits || {}).forEach(([k, e]) => { out.edits[k] = { pay:e.pay || null, date:e.date || null, count:typeof e.count === 'boolean' ? e.count : null, cust:!!(e.phone || e.name), at:e.at };
+    if(e.amt > 0){ out.edits[k].amt = e.amt; out.edits[k].amtFrom = e.amtFrom ?? null; }   // ยอด/จำนวน ไม่ใช่ข้อมูลส่วนตัว — หน้าสาธารณะต้องได้ยอดเดียวกัน
+    if(e.qty){ out.edits[k].qty = e.qty; out.edits[k].qtyFrom = e.qtyFrom || null; } });
   out.log = (src.log || []).map(x => ({ id:x.id, action:x.action, pay:x.pay || null, date:x.date || null, count:typeof x.count === 'boolean' ? x.count : null, at:x.at }));
   return out;
 }
@@ -6189,6 +6191,42 @@ function oeCustApply(){
     if(rows.shared.length) return;          // ผู้ติดต่อใช้ร่วมกับออเดอร์อื่น — ไม่แก้ (หน้าแก้ไขออเดอร์ไม่ยอมให้บันทึกกรณีนี้อยู่แล้ว)
     oeCustSet(rows, oeCustVals(e));
   });
+}
+/* ---- ยอดเงิน / จำนวนสินค้าที่คีย์ผิด (owner 3 พ.ย. 69) — เช่น MC ส่ง 9 ขวด เก็บ COD 1,935 แต่ออเดอร์ลงไว้ 3 ขวด 690
+   edits[id].amt     ยอดออเดอร์ใหม่ (รวม VAT) · .amtFrom ยอดในไฟล์ตอนแก้ครั้งแรก
+   edits[id].qty     {SKU: จำนวนรวมใหม่} · .qtyFrom {SKU: จำนวนในไฟล์}
+   ใช้ตอนคำนวณทุกครั้ง (หลังขั้นกระทบยอด) กับ "สำเนา" ของบรรทัดสินค้า — ข้อมูลไฟล์ต้นทางไม่ถูกแตะ
+   ยกเลิกการแก้ = กลับเป็นยอดในไฟล์ · ยอดเงินแบ่งให้แต่ละบรรทัดตามราคาต่อชิ้นเดิม x จำนวนใหม่            */
+function oeAmtApply(leads, products){
+  const edits = Object.entries((ORDER_EDITS && ORDER_EDITS.edits) || {}).filter(([, e]) => e && (e.amt > 0 || e.qty));
+  if(!edits.length) return products;
+  const byLead = new Map(leads.map(r => [String(r['Lead ID']), r]));
+  edits.forEach(([id, e]) => {
+    const lead = byLead.get(String(id)); if(!lead) return;
+    const oldTotal = orderGross(lead), lines = [];
+    products.forEach((p, i) => { if(String(p['Lead ID']) === String(id)) lines.push(products[i] = Object.assign({}, p)); });
+    const unit = lines.map(p => { const q = Number(p['Quantity']) || 0; return q > 0 ? itemGross(p) / q : 0; });
+    const val0 = lines.map(p => Number(p['Value Before VAT']) || 0), qty0 = lines.map(p => Number(p['Quantity']) || 0);
+    // จำนวน: ส่วนต่างลงที่บรรทัดที่มีราคาก่อน (บรรทัดของแถม 0 บาทของ SKU เดียวกันคงไว้)
+    Object.entries(e.qty || {}).forEach(([sku, want]) => {
+      const ix = lines.map((p, i) => i).filter(i => skuOf(lines[i]) === sku).sort((a, b) => (unit[b] > 0) - (unit[a] > 0));
+      if(!ix.length) return;
+      let d = (Number(want) || 0) - ix.reduce((s, i) => s + qty0[i], 0);
+      ix.forEach(i => { const q = Math.max(0, qty0[i] + d); d -= q - qty0[i]; lines[i]['Quantity'] = q; });
+    });
+    const total = e.amt > 0 ? Number(e.amt) : oldTotal;
+    const w = lines.map((p, i) => unit[i] * (Number(p['Quantity']) || 0)), sw = w.reduce((a, b) => a + b, 0);
+    const g = lines.map((p, i) => grossR2(sw > 0 ? total * w[i] / sw : (i === 0 ? total : 0)));
+    if(lines.length){ const k = g.indexOf(Math.max(...g)); g[k] = grossR2(g[k] + total - g.reduce((a, b) => a + b, 0)); }
+    lines.forEach((p, i) => {
+      const v = g[i] / (1 + VAT_RATE), r = val0[i] > 0 ? v / val0[i] : 1, q = Number(p['Quantity']) || 0;
+      p['Value Before VAT'] = v; p.__grossOut = g[i];
+      if(q > 0 && qty0[i] > 0 && val0[i] > 0) p['Unit Price'] = (Number(p['Unit Price']) || 0) * (v / q) / (val0[i] / qty0[i]);
+      if(Number(p['Discount'])) p['Discount'] = Number(p['Discount']) * r;
+    });
+    lead['Lead Value'] = total / (1 + VAT_RATE); lead.__grossOut = grossR2(total);
+  });
+  return products;
 }
 function oeNoCust(){ const a = ORDER_EDITS && ORDER_EDITS.noCust; return Array.isArray(a) ? a : []; }
 function oeLeadsWithPhone(phone){
@@ -9786,6 +9824,8 @@ function recomputeDataset(options = {}){
     p.__grossOut = (p.__origGross === null) ? undefined
                  : (Math.abs(ratio - 1) > 1e-9 ? grossR2(withVat(p['Value Before VAT'])) : p.__origGross);
   });
+  // --- ยอดเงิน / จำนวนสินค้าที่แก้ไว้ในหน้าแก้ไขออเดอร์ (owner 3 พ.ย. 69) — ทับยอดในไฟล์ทุกขั้นข้างบน
+  products = oeAmtApply(leads, products);
 
   console.log('[กระทบยอดกับรายงานขาย 2569] ปรับ marketplace ' + mkpAdjusted + ' ออเดอร์ | เกลี่ยรายวัน ' + calDays + '/181 วัน | ข้าม ' + calSkipped + ' วัน');
   console.log('[ราคาที่ลูกค้าจ่ายจริง] มีราคาต้นทางจากไฟล์ ' + leads.filter(r => grossOk(r.__grossIncl)).length +
@@ -12895,13 +12935,48 @@ function oeFind(q){
 }
 function oeSourcePay(lead){ if(isMarketplaceOrder(lead)) return PAYMENT_MARKETPLACE; return PAYMENT_OVERRIDES[lead['Lead ID']] || paymentMethod(lead['Lead Intro']); }
 function oeDM(s){ return s ? new Date(s + 'T00:00:00').toLocaleDateString('th-TH', {day:'numeric', month:'short', year:'2-digit'}) : '—'; }
-function oeDesc(e){ const a = []; if(e.count === true) a.push('นับเป็นยอดขาย'); if(e.count === false) a.push('ไม่นับยอด'); if(e.pay) a.push('วิธีชำระ → ' + e.pay); if(e.date) a.push('นับยอดวันที่ ' + oeDM(e.date)); if(e.phone) a.push('เบอร์ลูกค้า → ' + e.phone); if(e.name) a.push('ชื่อลูกค้า → ' + e.name); if(!e.phone && !e.name && e.cust) a.push('แก้เบอร์/ชื่อลูกค้า'); return a.join(' · ') || '—'; }
+function oeDesc(e){ const a = []; if(e.count === true) a.push('นับเป็นยอดขาย'); if(e.count === false) a.push('ไม่นับยอด'); if(e.pay) a.push('วิธีชำระ → ' + e.pay); if(e.date) a.push('นับยอดวันที่ ' + oeDM(e.date)); if(e.phone) a.push('เบอร์ลูกค้า → ' + e.phone); if(e.name) a.push('ชื่อลูกค้า → ' + e.name); if(!e.phone && !e.name && e.cust) a.push('แก้เบอร์/ชื่อลูกค้า'); if(e.amt > 0) a.push('ยอด ' + (e.amtFrom != null ? fmtNum(e.amtFrom) + ' → ' : '→ ') + fmtNum(e.amt) + ' บาท'); if(e.qty) a.push('จำนวน ' + Object.entries(e.qty).map(([s, q]) => s + ' ' + (e.qtyFrom && e.qtyFrom[s] != null ? e.qtyFrom[s] + ' → ' : '→ ') + q).join(', ')); return a.join(' · ') || '—'; }
+// ยอดเงิน + จำนวนต่อ SKU ของออเดอร์ (ค่าปัจจุบัน = หลังแก้แล้ว) — owner 3 พ.ย. 69
+function oeSkuQty(lead){
+  const id = String(lead['Lead ID']), m = new Map();
+  ((DATA && DATA.transactionProducts) || []).forEach(p => {
+    if(String(p['Lead ID']) !== id || !skuOf(p)) return;
+    const s = m.get(skuOf(p)) || { sku:skuOf(p), name:shortProductName(p['Product Name']), qty:0 };
+    s.qty += Number(p['Quantity']) || 0; m.set(s.sku, s);
+  });
+  return [...m.values()];
+}
+function oeAmtFields(lead){
+  const lab = 'style="font-size:12px;font-weight:600;"';
+  return '<label ' + lab + '>ยอดเงิน (รวม VAT)<br><input id="oeAmt" inputmode="decimal" value="' + oeEsc(grossR2(orderGross(lead))) + '" style="max-width:110px;"></label>'
+    + oeSkuQty(lead).map(s => '<label ' + lab + '>จำนวน ' + oeEsc(s.name || s.sku) + ' <span style="font-weight:400;color:var(--text-muted)">(' + oeEsc(s.sku) + ')</span><br>'
+      + '<input data-oeq="' + oeEsc(s.sku) + '" inputmode="numeric" value="' + oeEsc(s.qty) + '" style="max-width:70px;"> ชิ้น</label>').join('');
+}
+// อ่านช่องยอด/จำนวน -> ed.amt / ed.qty (เทียบกับค่าในไฟล์ก่อนแก้) · false = ค่าไม่ถูกต้อง
+function oeAmtRead(host, lead, ex, ed){
+  const ai = document.getElementById('oeAmt');
+  if(ai){
+    const na = Number(String(ai.value).replace(/[,\s฿]/g, ''));
+    if(!(na > 0)){ HylmeVault.notice('ยอดเงินไม่ถูกต้อง', 'ใส่ยอดรวม VAT ที่เก็บลูกค้าจริง เช่น 1935'); return false; }
+    const src = ex.amt > 0 && ex.amtFrom != null ? Number(ex.amtFrom) : grossR2(orderGross(lead));
+    if(Math.abs(na - src) > 0.004){ ed.amt = grossR2(na); ed.amtFrom = src; }
+  }
+  let bad = false;
+  host.querySelectorAll('[data-oeq]').forEach(inp => {
+    const sku = inp.dataset.oeq, nq = Number(inp.value), cur = Number(inp.defaultValue);
+    if(!Number.isInteger(nq) || nq < 0){ bad = true; return; }
+    const src = ex.qty && sku in ex.qty && ex.qtyFrom && ex.qtyFrom[sku] != null ? Number(ex.qtyFrom[sku]) : cur;
+    if(nq !== src){ (ed.qty = ed.qty || {})[sku] = nq; (ed.qtyFrom = ed.qtyFrom || {})[sku] = src; }
+  });
+  if(bad){ HylmeVault.notice('จำนวนไม่ถูกต้อง', 'ใส่จำนวนชิ้นเป็นเลขจำนวนเต็ม'); return false; }
+  return true;
+}
 function oeRecompute(){ if(DATA){ if(!recomputeDataset()){ state.team = 'all'; state.person = ''; state.channel = ''; recomputeDataset(); } renderAll(); renderBackendCards(true); } }
 async function oeCommit(id, ed, reason){
   if(HylmeVault.isLocked() && !(await HylmeVault.promptUnlock('ใส่รหัสผ่านเพื่อแก้ไขออเดอร์และบันทึกลง database'))) return;
   ORDER_EDITS = ORDER_EDITS || {}; ORDER_EDITS.edits = ORDER_EDITS.edits || {}; ORDER_EDITS.log = ORDER_EDITS.log || [];
   const at = new Date().toISOString();
-  const any = !!(ed.pay || ed.date || typeof ed.count === 'boolean' || ed.phone || ed.name);
+  const any = !!(ed.pay || ed.date || typeof ed.count === 'boolean' || ed.phone || ed.name || ed.amt || ed.qty);
   // เบอร์/ชื่อ: คืนค่าเดิมในไฟล์ก่อน แล้ว recompute ค่อยใส่ค่าที่แก้ใหม่ (ยกเลิกการแก้ = เหลือค่าเดิม)
   const prev = ORDER_EDITS.edits[id], rows = oeCustRows(id);
   if(prev && prev.orig) oeCustSet(rows, prev.orig);
@@ -12909,7 +12984,7 @@ async function oeCommit(id, ed, reason){
   if(any) ORDER_EDITS.edits[id] = Object.assign({}, ed, { reason, at });
   else delete ORDER_EDITS.edits[id];
   ORDER_EDITS.log.push({ id, action:any ? 'set' : 'clear', pay:ed.pay || null, date:ed.date || null, count:typeof ed.count === 'boolean' ? ed.count : null,
-    phone:ed.phone || null, name:ed.name || null, reason, at });
+    phone:ed.phone || null, name:ed.name || null, amt:ed.amt || null, amtFrom:ed.amt ? ed.amtFrom : null, qty:ed.qty || null, reason, at });
   oeSel = id; oeRecompute();
   if(!HylmeVault.apiMode()){ HylmeVault.notice('แก้ในหน้านี้แล้ว', 'หน้านี้ไม่ได้ต่อ database — การแก้อยู่ในหน้านี้เท่านั้น'); return; }
   await HylmeVault.publishFromPage();
@@ -12996,6 +13071,7 @@ function renderOrderEditCard(){
       + '<label style="font-size:12px;font-weight:600;">นับยอด<br><select id="oeCount"><option value="yes"' + (lead.__cancelled ? '' : ' selected') + '>นับเป็นยอดขาย</option><option value="no"' + (lead.__cancelled ? ' selected' : '') + '>ไม่นับยอด</option></select></label>'
       + '<label style="font-size:12px;font-weight:600;">วันที่นับยอด<br><input type="date" id="oeDate" value="' + oeEsc(lead.__date || srcDate) + '"></label>'
       + (payEditable ? '<label style="font-size:12px;font-weight:600;">วิธีชำระเงิน<br><select id="oePay">' + OE_PAYS.map(p => '<option' + (p === curPay ? ' selected' : '') + '>' + oeEsc(p) + '</option>').join('') + '</select></label>' : '')
+      + oeAmtFields(lead)
       + custFields
       + '<label style="font-size:12px;font-weight:600;flex:1;min-width:220px;">เหตุผล (ต้องใส่)<br><input id="oeReason" style="width:100%" placeholder="เช่น ลูกค้าโอนวันที่ 1 แต่กดยืนยันวันที่ 2"></label>'
       + '<button class="btn primary" id="oeSave">บันทึก + ส่งขึ้น Database</button>'
@@ -13008,7 +13084,7 @@ function renderOrderEditCard(){
         + oeEsc(e.reason || (locked ? '🔒 ใส่รหัสเพื่อดู' : '—')) + '</td><td>' + oeEsc(new Date(e.at).toLocaleString('th-TH', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})) + '</td></tr>').join('')
       + '</tbody></table>'
     : '<div class="card-sub" style="margin-top:6px;">ยังไม่มีออเดอร์ที่แก้</div>';
-  host.innerHTML = (locked ? '' : oeNoCustHitBox()) + '<div class="card-head"><div><h3>แก้ไขออเดอร์ — วิธีชำระเงิน / วันที่นับยอด / เบอร์ลูกค้า</h3>'
+  host.innerHTML = (locked ? '' : oeNoCustHitBox()) + '<div class="card-head"><div><h3>แก้ไขออเดอร์ — วิธีชำระเงิน / วันที่นับยอด / ยอดเงิน / จำนวน / เบอร์ลูกค้า</h3>'
     + '<div class="card-sub">ใช้เมื่อข้อมูลในไฟล์ผิด เช่น ลงเป็น COD แต่ลูกค้าโอน · ลูกค้าโอนวันที่ 1 แต่ทีมกดยืนยันวันที่ 2 — ไฟล์ต้นทางไม่ถูกแก้ · การแก้เก็บตามเลขออเดอร์และไปกับข้อมูลทุกรอบ (อัปไฟล์ใหม่ก็ยังอยู่) · CRM_V3 ใช้ตามในการอัปเดตรอบถัดไป</div></div></div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><input id="oeQ" placeholder="เลขออเดอร์ เช่น PK-10127" value="' + oeEsc(oeSel || '') + '" style="max-width:240px;"><button class="btn" id="oeGo">ค้นหา</button></div>'
     + box + '<div style="margin-top:14px;font-weight:700;font-size:13px;">ออเดอร์ที่แก้แล้ว (' + edits.length + ')</div>' + list
@@ -13042,6 +13118,7 @@ function renderOrderEditCard(){
       }
       if(nn && nn !== String(src.lead || '').trim()) ed.name = nn;
     } else { if(ex.phone) ed.phone = ex.phone; if(ex.name) ed.name = ex.name; }
+    if(!oeAmtRead(host, lead, ex, ed)) return;
     oeCommit(id, ed, reason);
   };
   // ใส่เบอร์ใหม่ -> เสนอชื่อจากออเดอร์ล่าสุดของเบอร์นั้น (ลูกค้าเดิม)
