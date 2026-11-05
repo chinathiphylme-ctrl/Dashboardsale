@@ -14941,14 +14941,17 @@ function cmpDelta(a, b, opts){
   if(opts.pp){
     if(opts.aNull || opts.bNull) return { cls:'neu', html:'— ไม่มีข้อมูลพอให้เทียบ' };
     const d = a - b;
-    const cls = Math.abs(d) < 0.05 ? 'neu' : d > 0 ? 'pos' : 'neg';
+    let cls = Math.abs(d) < 0.05 ? 'neu' : d > 0 ? 'pos' : 'neg';
+    if(opts.invert) cls = cls === 'pos' ? 'neg' : cls === 'neg' ? 'pos' : cls;
     return { cls, html:`${d > 0 ? '▲' : d < 0 ? '▼' : '—'} ${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(1)} จุด เทียบช่วง B` };
   }
   const diff = a - b;
   const fmt = opts.fmt || fmtNum;
-  if(b === 0) return a > 0 ? { cls:'pos', html:`▲ ใหม่ (ช่วง B ไม่มีข้อมูล) • +${fmt(diff)}` } : { cls:'neu', html:'— ไม่เปลี่ยนแปลง' };
+  // invert = ค่าน้อยดีกว่า (CPO, ต้นทุน/ทัก) • neutral = ไม่ตัดสินดี/แย่ (MKT cost)
+  const tone = c => opts.neutral ? 'neu' : opts.invert ? (c === 'pos' ? 'neg' : c === 'neg' ? 'pos' : c) : c;
+  if(b === 0) return a > 0 ? { cls:tone('pos'), html:`▲ ใหม่ (ช่วง B ไม่มีข้อมูล) • +${fmt(diff)}` } : { cls:'neu', html:'— ไม่เปลี่ยนแปลง' };
   const pct = diff / b * 100;
-  const cls = Math.abs(pct) < 0.05 ? 'neu' : pct > 0 ? 'pos' : 'neg';
+  const cls = tone(Math.abs(pct) < 0.05 ? 'neu' : pct > 0 ? 'pos' : 'neg');
   return { cls, html:`${pct > 0 ? '▲' : pct < 0 ? '▼' : '—'} ${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}% (${diff >= 0 ? '+' : '−'}${fmt(Math.abs(diff)).replace('฿ ', '฿')}) เทียบช่วง B` };
 }
 function cmpKpi(label, aVal, bVal, fmt, subA, subB, opts){
@@ -14994,6 +14997,78 @@ function cmpTable(id, title, sub, listA, listB, nameKey, valKey, val2Key, fmt2){
     </table></div>${more}
   </div>`;
 }
+/* ---- MKT cost ของช่วง A / B — สูตรเดียวกับ "ตัวชี้วัดหลักตามช่องทาง" (รายเพจ) และ "MKT cost แยกสินค้า" ----
+   ไม่เรียก adsChannelStats() ตรงนี้ เพราะฟังก์ชันนั้นเขียนลงการ์ดของหน้าภาพรวม (adsCoverage / adsHistory) */
+function cmpAds(p){
+  const out = { cost:0, inq:0, sales:0, orders:0, days:0, nDates:0, pages:[], prods:[], prodDays:0, hidden:'' };
+  if(!p) return out;
+  const dates = p.dates || [];
+  out.nDates = dates.length;
+  if(state.person){ out.hidden = 'MKT cost เป็นระดับเพจ จึงไม่แสดงเมื่อกรองรายบุคคล'; return out; }
+  const ds = new Set(dates), cs = p.channelStats || [];
+  const allowNew = !state.channel && (state.team === 'all' || state.team === 'admin');
+  const dayHas = new Set();
+  Object.entries(ADS_CHANNELS).forEach(([page, ch]) => {
+    const st = cs.find(s => s.channel === ch);
+    if(!st && !allowNew) return;
+    const rs = adsRecords.filter(r => r.page === page && ds.has(r.date));
+    const cost = rs.reduce((t, r) => t + (r.cost || 0), 0), inq = rs.reduce((t, r) => t + (r.inq || 0), 0);
+    rs.forEach(r => { if(r.cost > 0 || r.inq > 0) dayHas.add(r.date); });
+    const sales = st ? st.sales || 0 : 0, orders = st ? st.orders || 0 : 0;
+    if(cost <= 0 && sales <= 0) return;
+    out.pages.push({ name:'เพจ ' + page, cost, inq, sales, orders });
+    out.cost += cost; out.inq += inq; out.sales += sales; out.orders += orders;
+  });
+  out.days = dayHas.size;
+  if(!state.channel){
+    const dayMap = new Map((DATA.days || []).map(d => [d.date, d]));
+    const costIdx = new Map(productAdsRecords.map(r => [r.date + '|' + r.product, r.cost]));
+    const covered = new Set(productAdsRecords.map(r => r.date));
+    const pd = dates.filter(d => covered.has(d));
+    out.prodDays = pd.length;
+    PRODUCT_ADS_ITEMS.forEach(it => {
+      let cost = 0, sales = 0, orders = 0;
+      pd.forEach(d => {
+        cost += costIdx.get(d + '|' + it.key) || 0;
+        const st = (dayMap.get(d) || {}).adSkuStats || {};
+        it.skus.forEach(s => { const x = st[s]; if(x){ sales += x.revenue; orders += x.orders; } });
+      });
+      if(cost > 0 || sales > 0) out.prods.push({ name:it.label, cost, sales, orders });
+    });
+  }
+  return out;
+}
+// ตาราง MKT cost A เทียบ B (บรรทัดเล็ก = %cost • ROAS ของช่วงนั้น)
+function cmpAdsTable(title, sub, rowsA, rowsB, emptyTxt){
+  const map = {};
+  (rowsA || []).forEach(x => { (map[x.name] = map[x.name] || { name:x.name, a:null, b:null }).a = x; });
+  (rowsB || []).forEach(x => { (map[x.name] = map[x.name] || { name:x.name, a:null, b:null }).b = x; });
+  const costOf = r => r ? r.cost : 0;
+  const rows = Object.values(map).filter(r => costOf(r.a) > 0 || costOf(r.b) > 0)
+    .sort((x, y) => Math.max(costOf(y.a), costOf(y.b)) - Math.max(costOf(x.a), costOf(x.b)));
+  const note = r => !r || !(r.cost > 0) ? '' : r.sales > 0 ? `%cost ${(r.cost / r.sales * 100).toFixed(1)}% • ROAS ${(r.sales / r.cost).toFixed(2)}` : 'ยังไม่มียอดขาย';
+  const over = r => r && r.cost > 0 && r.sales > 0 && mktOverLimit(r.cost / r.sales * 100);
+  const cell = r => `<td class="num"${over(r) ? ` style="color:var(--critical)" title="%cost เกิน ${MKT_COST_LIMIT}% — ใช้งบ MKT เกิน"` : ''}>${r && r.cost > 0 ? fmtBaht(r.cost) : '—'}<small>${note(r)}</small></td>`;
+  const body = rows.map(r => {
+    const a = costOf(r.a), b = costOf(r.b), diff = a - b;
+    return `<tr>
+      <td class="nm">${cpEsc(r.name)}</td>${cell(r.a)}${cell(r.b)}
+      <td class="num delta-neu">${diff >= 0 ? '+' : '−'}${fmtBaht(Math.abs(diff)).replace('฿ ', '฿')}</td>
+      <td class="num delta-neu">${b ? (diff >= 0 ? '+' : '−') + Math.abs(diff / b * 100).toFixed(1) + '%' : (a > 0 ? 'ใหม่' : '—')}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="5" class="compare-empty">${emptyTxt || 'ยังไม่มีข้อมูล MKT cost ในทั้งสองช่วง'}</td></tr>`;
+  return `<div class="card">
+    <div class="card-head"><div><h3>${title}</h3><div class="card-sub">${sub}</div></div></div>
+    <div class="compare-table-wrap"><table class="compare-table">
+      <thead><tr><th>รายการ</th><th class="num">ช่วง A</th><th class="num">ช่วง B</th><th class="num">ส่วนต่าง</th><th class="num">%</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>
+  </div>`;
+}
+// โปรเดียวกันรวมเป็นแถวเดียว: ราคาตั้งที่เปลี่ยน (เช่น EVOO ต.ค. 2026) ทำให้โปรเดิมถูกนับเป็น "ลดพิเศษ" ช่วงหนึ่ง
+// และ "ราคาปกติ" อีกช่วง — แยกแถวแล้วเทียบ A/B จะขึ้นสองแถวที่ตัวเลขสวนกัน • "แจกฟรี" ยังแยกไว้
+const cmpPromoKey = l => String(l || '').replace(/ \((?:ลดพิเศษ|ราคาปกติ)\)$/, '');
+const cmpPromos = list => (list || []).map(x => ({ ...x, label:cmpPromoKey(x.label) }));
 // หาตัวที่เพิ่ม/ลดมากที่สุด (ตามบาท)
 function cmpMovers(listA, listB, nameKey, valKey){
   const map = {};
@@ -15098,6 +15173,35 @@ function renderComparePage(){
   const sa = cmpDailySeries(A, s.aFrom, s.aTo), sb = cmpDailySeries(B, s.bFrom, s.bTo);
   const unitTxt = v => `${fmtNum(v)} ชิ้น`, ordTxt = v => `${fmtNum(v)} ออเดอร์`;
 
+  // ---- MKT cost ----
+  const adA = cmpAds(A), adB = cmpAds(B);
+  const adPct = o => o.cost > 0 && o.sales > 0 ? o.cost / o.sales * 100 : null;
+  const adDiv = (x, y) => x > 0 && y > 0 ? x / y : null;
+  const money = v => v == null ? '—' : fmtBaht(v);
+  const ratio = v => v == null ? '—' : Number(v).toFixed(2);
+  const adHidden = state.person ? 'MKT cost เป็นระดับเพจ จึงไม่แสดงเมื่อกรองรายบุคคล' : '';
+  const adCover = `มีข้อมูล MKT cost รายเพจ: A ${fmtNum(adA.days)}/${fmtNum(adA.nDates)} วัน • B ${fmtNum(adB.days)}/${fmtNum(adB.nDates)} วัน` +
+    ((adA.days < adA.nDates || adB.days < adB.nDates) ? ' — มีบางวันยังไม่ได้ใส่ MKT cost ตัวเลขเทียบกันได้ไม่เต็มที่' : '');
+  const adsHtml = adHidden ? `<div class="card compare-empty" style="margin-bottom:12px;">${adHidden}</div>` : `
+    <div class="card" style="margin-bottom:12px;">
+      <div class="card-head"><div><h3>MKT cost (ค่าโฆษณาเพจ Facebook) A เทียบ B</h3>
+        <div class="card-sub">${adCover} • ยอดขาย / ออเดอร์ = ออเดอร์จริงของเพจที่มี MKT cost (สูตรเดียวกับตารางตัวชี้วัดตามช่องทาง) • %cost = MKT cost ÷ ยอดขาย × 100</div></div></div>
+      <div class="compare-kpis">${[
+        cmpKpi('MKT cost รวม', adA.cost, adB.cost, money, `ยอดขายเพจ ${fmtBaht(adA.sales)}`, `ยอดขายเพจ ${fmtBaht(adB.sales)}`, { neutral:true }),
+        cmpKpi('%cost (MKT ÷ ยอดขาย)', adPct(adA), adPct(adB), fmtNum, '', '', { pp:true, invert:true, aNull: adPct(adA) == null, bNull: adPct(adB) == null }),
+        cmpKpi('ROAS (ยอดขาย ÷ MKT cost)', adDiv(adA.sales, adA.cost), adDiv(adB.sales, adB.cost), ratio),
+        cmpKpi('CPO (MKT cost ÷ ออเดอร์)', adDiv(adA.cost, adA.orders), adDiv(adB.cost, adB.orders), money, `${fmtNum(adA.orders)} ออเดอร์`, `${fmtNum(adB.orders)} ออเดอร์`, { invert:true }),
+        cmpKpi('ยอดทัก', adA.inq, adB.inq, fmtNum),
+        cmpKpi('ต้นทุน / ทัก', adDiv(adA.cost, adA.inq), adDiv(adB.cost, adB.inq), money, '', '', { invert:true }),
+      ].join('')}</div>
+    </div>
+    <div class="compare-grid">
+      ${cmpAdsTable('MKT cost แยกเพจ', 'บรรทัดเล็ก = %cost • ROAS ของช่วงนั้น • สีแดง = %cost เกิน ' + MKT_COST_LIMIT + '%', adA.pages, adB.pages)}
+      ${cmpAdsTable('MKT cost แยกสินค้า', state.channel ? 'MKT cost แยกสินค้าเป็นระดับแบรนด์ จึงไม่แสดงเมื่อกรองรายเพจ' :
+        `มีข้อมูล A ${fmtNum(adA.prodDays)}/${fmtNum(adA.nDates)} วัน • B ${fmtNum(adB.prodDays)}/${fmtNum(adB.nDates)} วัน • ยอดขาย = ออเดอร์ของสินค้านั้นจากเพจ Facebook เฉพาะวันที่มี MKT cost รายสินค้า`,
+        adA.prods, adB.prods, state.channel ? 'ไม่แสดงเมื่อกรองรายเพจ' : '')}
+    </div>`;
+
   host.innerHTML = `
     <div class="compare-head">
       <div><div class="compare-title">เปรียบเทียบช่วงเวลา</div>
@@ -15135,6 +15239,7 @@ function renderComparePage(){
     </div>
 
     <div class="compare-kpis">${kpis}</div>
+    ${adsHtml}
 
     <div class="card" style="margin-bottom:12px;">
       <div class="card-head">
@@ -15160,7 +15265,7 @@ function renderComparePage(){
     </div>
     <div class="compare-grid">
       ${cmpTable('prod', 'แยกตามสินค้า', 'ยอดขายของสินค้า (บรรทัดเล็ก = จำนวนชิ้น)', a.products, bb.products, 'product', 'revenue', 'units', unitTxt)}
-      ${cmpTable('promo', 'แยกตามโปรโมชั่น', 'ยอดขายของโปร (บรรทัดเล็ก = จำนวนชิ้น)', a.promos, bb.promos, 'label', 'revenue', 'units', unitTxt)}
+      ${cmpTable('promo', 'แยกตามโปรโมชั่น', 'ยอดขายของโปร — ราคาปกติ + ลดพิเศษ ของโปรเดียวกันรวมเป็นแถวเดียว (บรรทัดเล็ก = จำนวนชิ้น)', cmpPromos(a.promos), cmpPromos(bb.promos), 'label', 'revenue', 'units', unitTxt)}
     </div>
     ${cmpTable('rep', 'แยกตามผู้ดูแล / เจ้าของออเดอร์', 'ยอดขาย (บรรทัดเล็ก = จำนวนออเดอร์)', a.reps, bb.reps, 'rep', 'sales', 'orders', ordTxt)}
   `;
