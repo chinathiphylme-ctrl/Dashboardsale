@@ -19,6 +19,8 @@
 //   GET  /snapshots         รายการ 20 รอบล่าสุด                         (token ผู้ดูแล)
 //   POST /publish           บันทึกรอบใหม่                               (token ผู้ดูแล)
 //   POST /viewer            ตั้ง/เปลี่ยนรหัสพนักงาน {viewer_salt, viewer_verifier}   (token ผู้ดูแล)
+//   GET  /return-notes      เหตุผลตีคืนที่ทีมใส่ {mc: {cat, note, by, at}}           (token พนักงาน หรือ ผู้ดูแล)
+//   POST /return-notes      ใส่/แก้เหตุผลตีคืน 1 ออเดอร์ {mc, cat, note, by} — cat+note ว่าง = ลบ   (token พนักงาน หรือ ผู้ดูแล)
 //   POST /setup             ตั้งรหัสครั้งแรก (ต้องมี SETUP_CODE) / เปลี่ยนรหัส (ต้องมี token เดิม)
 //
 // คุยกับ Postgres ผ่าน SQL-over-HTTP ของ Neon (โปรโตคอลเดียวกับ @neondatabase/serverless) — ไม่ต้อง bundle ไลบรารี
@@ -148,6 +150,31 @@ async function route(req) {
     const a = await authorize(req, 'public', vault, ['admin', 'viewer']); if (a.error) return a.error;
     const row = await pick('public_gz', url);
     return row ? json({ ok: true, ...meta(row), public_gz: row.public_gz }) : fail(404, 'ยังไม่มีข้อมูล');
+  }
+  // เหตุผลตีคืน (หน้า "ตีคืน MC") — ทีมใส่ได้ทันทีไม่ต้องรอผู้ดูแลกดบันทึกรอบข้อมูล
+  if (method === 'GET' && path === '/return-notes') {
+    const a = await authorize(req, 'rnotes', vault, ['admin', 'viewer']); if (a.error) return a.error;
+    const rows = await sql('SELECT mc, cat, note, by_name, updated_at FROM return_notes');
+    const notes = {};
+    rows.forEach((r) => { notes[r.mc] = { cat: r.cat, note: r.note, by: r.by_name, at: r.updated_at }; });
+    return json({ ok: true, notes });
+  }
+  if (method === 'POST' && path === '/return-notes') {
+    const a = await authorize(req, 'rnote-set', vault, ['admin', 'viewer']); if (a.error) return a.error;
+    const b = await readJson(req);
+    const mc = typeof b.mc === 'string' ? b.mc.trim().toUpperCase() : '';
+    const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+    if (!/^[A-Z0-9_-]{4,40}$/.test(mc)) return fail(400, 'เลข MC ไม่ถูกต้อง');
+    const cat = str(b.cat, 60), note = str(b.note, 1000), by = str(b.by, 60);
+    if (!cat && !note) {
+      await sql('DELETE FROM return_notes WHERE mc = $1', [mc]);
+      return json({ ok: true, mc, deleted: true });
+    }
+    const [row] = await sql(
+      `INSERT INTO return_notes (mc, cat, note, by_name, updated_at) VALUES ($1, $2, $3, $4, now())
+       ON CONFLICT (mc) DO UPDATE SET cat = EXCLUDED.cat, note = EXCLUDED.note, by_name = EXCLUDED.by_name, updated_at = now()
+       RETURNING mc, cat, note, by_name, updated_at`, [mc, cat, note, by]);
+    return json({ ok: true, mc, note: { cat: row.cat, note: row.note, by: row.by_name, at: row.updated_at } });
   }
   if (method === 'POST' && path === '/viewer') {
     const a = await authorize(req, 'viewer-set', vault); if (a.error) return a.error;

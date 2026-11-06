@@ -473,6 +473,7 @@
       if(pub.returnDecisions) RETURN_REVIEW_DECISIONS = pub.returnDecisions;
       if(pub.returnAdditions) RETURN_REVIEW_ADDITIONS = pub.returnAdditions;
       if(pub.orderEdits && typeof ORDER_EDITS !== 'undefined') ORDER_EDITS = pub.orderEdits;
+      if(pub.returns && typeof RETURNS_DATA !== 'undefined') RETURNS_DATA = pub.returns;     // หน้า "ตีคืน MC" (ปิดชื่อ/เบอร์แล้ว)
       // ต้นทุน Ads ที่บันทึกมากับรอบนี้ (ไม่มีข้อมูลลูกค้า) — รวมกับชุดในหน้าเว็บ/เครื่องนี้ แถวที่นำเข้าทีหลังชนะ
       if(Array.isArray(pub.ads) && typeof adsMerge === 'function') adsRecords = adsMerge(adsRecords, pub.ads.filter(adsValid));
       if(Array.isArray(pub.productAds) && typeof prodAdsMerge === 'function') productAdsRecords = prodAdsMerge(productAdsRecords, pub.productAds.filter(prodAdsValid));
@@ -502,6 +503,7 @@
     RETURN_REVIEW_DECISIONS = full.returnDecisions;
     RETURN_REVIEW_ADDITIONS = full.returnAdditions;
     if(full.orderEdits && typeof ORDER_EDITS !== 'undefined') ORDER_EDITS = full.orderEdits;
+    if(full.returns && typeof RETURNS_DATA !== 'undefined') RETURNS_DATA = full.returns;
     uploadedFiles = files;
     V.key = key; V.unlocked = true;
   }
@@ -749,6 +751,8 @@
       const decisions = Object.assign({}, RETURN_REVIEW_DECISIONS || {});
       if(typeof cxlDecisions === 'function') Object.entries(cxlDecisions() || {}).forEach(([id, d]) => { const c = decisions[id]; if(d && (!c || String(c.at || '') < String(d.at || ''))) decisions[id] = d; });
       const base = {files:uploadedFiles, returnDecisions:decisions, returnAdditions:RETURN_REVIEW_ADDITIONS};
+      // รายการตีคืน MC (ไฟล์ที่อัปโหลดในหน้า "ตีคืน MC") — ปิดชื่อ/เบอร์/ที่อยู่ + สแกนข้อมูลหลุดชุดเดียวกัน
+      if(typeof RETURNS_DATA !== 'undefined' && RETURNS_DATA) base.returns = RETURNS_DATA;
       const masked = await maskChecked(base);
       if(!masked) return;
       // การแก้ไขออเดอร์: ข้อมูลจริงเก็บพร้อมเหตุผล · ส่วนที่ทุกคนเห็นไม่มีเหตุผล (อาจมีชื่อลูกค้า)
@@ -769,6 +773,8 @@
       set('⏳ กำลังบันทึก…');
       const res = await api('/publish', {method:'POST', body:body, key:V.key});
       V.snapshot = {id:res.snapshot.id, created_at:res.snapshot.created_at};
+      if(typeof RETURNS_DATA !== 'undefined' && RETURNS_DATA) RETURNS_DATA.saved = true;
+      if(typeof renderReturnsPage === 'function' && document.body.classList.contains('page-returns')) renderReturnsPage();
       notice('บันทึกลง Database เรียบร้อย ✅', 'รอบที่ ' + res.snapshot.id + ' · ' + new Date(res.snapshot.created_at).toLocaleString('th-TH')
         + '\nคนที่เปิดเว็บอยู่กด refresh ก็เห็นข้อมูลชุดนี้ทันที');
     }catch(e){
@@ -802,6 +808,12 @@
     setDataFileEnc:env => { V.dataFileEnc = env || null; },
     buildDataJson:buildDataJson, buildBakeParts:buildBakeParts, fillSlots:fillSlots, publicFiles:publicFiles,
     apiMode:() => !!apiBase(), loadFromApi:loadFromApi, publishFromPage:publishFromPage, logout:logout, setViewerPassword:setViewerPassword,
+    // เหตุผลตีคืนที่ทีมใส่ — พนักงาน/ผู้ดูแลบันทึกได้ทันที (ตาราง return_notes)
+    returnNotes:{
+      load:() => api('/return-notes', V.key ? {key:V.key} : {session:true}).then(j => j.notes || {}),
+      save:(mc, d) => api('/return-notes', Object.assign({method:'POST', body:Object.assign({mc:mc}, d)}, V.key ? {key:V.key} : {session:true})),
+    },
+    isAdmin:() => !!V.key,
     // ใช้โดย tools/build.mjs และชุดทดสอบ
     _build:{deriveKey:deriveKey, encryptJSON:encryptJSON, decryptEnv:decryptEnv, maskData:maskData, makeMasker:makeMasker,
       macKeyFor:macKeyFor, sha256:sha256, hmacFactory:hmacFactory, packFiles:packFiles, ITER:ITER,
@@ -3348,6 +3360,34 @@ body.page-customers #sideOpenCal, body.page-customers #teamSide .side-picklist{ 
 }
 
 /* ==================== v16 — หน้า "เปรียบเทียบช่วง" ==================== */
+#returnsPage{ display:none; }
+body.page-returns #returnsPage{ display:block; }
+body.page-returns #dashboard, body.page-returns #backendToggle, body.page-returns #backendBody{ display:none !important; }
+body.page-returns #teamSide > .side-cap:first-child, body.page-returns #sideModeSeg, body.page-returns #teamSide .side-nav,
+body.page-returns #sideOpenCal, body.page-returns #teamSide .side-picklist{ display:none !important; }
+.rt-bar{ display:flex; gap:12px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; margin-bottom:12px; }
+.rt-bar-btns{ display:flex; gap:8px; flex-wrap:wrap; }
+.rt-unsaved{ display:inline-block; margin-left:6px; padding:1px 8px; border-radius:999px; font-weight:700; color:var(--text-primary);
+  background:color-mix(in srgb, var(--warning) 20%, transparent); border:1px solid color-mix(in srgb, var(--warning) 50%, transparent); }
+.cp-badge.rt-neu{ background:color-mix(in srgb, var(--text-primary) 8%, transparent); color:var(--text-secondary); }
+.rt-click{ cursor:pointer; border-radius:8px; }
+.rt-click:hover{ background:color-mix(in srgb, var(--text-primary) 5%, transparent); }
+.rt-filters{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+.rt-filters input, .rt-filters select, .rt-edit select, .rt-edit textarea, .rt-edit input{ font:inherit; font-size:13px; padding:7px 10px; color:var(--text-primary);
+  background:var(--surface-1); border:1px solid var(--border); border-radius:10px; }
+.rt-filters input{ flex:1 1 220px; min-width:0; }
+.rt-table td{ vertical-align:top; white-space:normal !important; min-width:90px; font-size:12.5px; }
+.rt-table td.rt-mc{ font-variant-numeric:tabular-nums; white-space:nowrap !important; }
+.rt-sub{ display:block; color:var(--text-muted); font-size:11px; margin-top:2px; }
+.rt-team-cell{ min-width:180px !important; }
+.rt-team{ line-height:1.45; margin-bottom:4px; }
+.rt-team small{ display:block; color:var(--text-muted); font-size:11px; }
+.rt-edit{ display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; padding:6px 0; }
+.rt-edit label{ display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:600; color:var(--text-secondary); }
+.rt-edit .rt-grow{ flex:1 1 260px; }
+.rt-edit .rt-err{ flex-basis:100%; color:var(--critical); font-size:12px; min-height:0; }
+.rt-edit-btns{ display:flex; gap:6px; }
+.rt-edit-row td{ background:color-mix(in srgb, var(--series-1) 6%, transparent); }
 #comparePage{ display:none; }
 body.page-compare #comparePage{ display:block; }
 body.page-compare #dashboard, body.page-compare #backendToggle, body.page-compare #backendBody{ display:none !important; }
@@ -3410,6 +3450,10 @@ body.page-compare #sideOpenCal, body.page-compare #teamSide .side-picklist{ disp
       <button type="button" data-page="compare">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 4v16M17 4v16M3 8h8M13 16h8"></path></svg>
         เปรียบเทียบช่วง
+      </button>
+      <button type="button" data-page="returns">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"></path><path d="M9 12H15M9 12l2.5-2.5M9 12l2.5 2.5"></path></svg>
+        ตีคืน MC
       </button>
     </nav>
 
@@ -3668,6 +3712,11 @@ body.page-compare #sideOpenCal, body.page-compare #teamSide .side-picklist{ disp
   <!-- ==================== หน้าเปรียบเทียบช่วง A vs B (สลับจากเมนูแถบซ้าย) ==================== -->
   <div id="comparePage" class="compare-page">
     <div id="cmpBody"><div class="card compare-empty">กำลังโหลดข้อมูล…</div></div>
+  </div>
+
+  <!-- ==================== หน้าตีคืน MC (สลับจากเมนูแถบซ้าย) ==================== -->
+  <div id="returnsPage">
+    <div id="rtBody"><div class="card cp-empty">กำลังโหลดข้อมูล…</div></div>
   </div>
 
   <!-- ==================== BACKEND / DATA MANAGEMENT (moved to bottom for presentation) ==================== -->
@@ -7775,9 +7824,10 @@ const CH = {
 const MARKETPLACE_RE = /shopee|tiktok|tik tok|lazada|ช้อปปี้|ลาซาด้า/i;
 // ผู้ขายที่ใช้กับทุกออเดอร์ที่ช่องทางขาย = Telesales (3044)
 const TELESALES_MC_PERSON = 'Chitanuch Chitranondh';
-// (4) สินค้าพรีออเดอร์ (GABA) -> ใส่หมายเหตุ Pre-order (สถานะ Fulfill / OnHold มาจากที่ติ๊กในหน้าเว็บ)
+// (4) สินค้าพรีออเดอร์ -> เริ่มที่ "จอง (OnHold)" (ไม่ติ๊กในเช็กลิสต์สถานะ — ของเข้าแล้วค่อยติ๊กอนุมัติ)
+//     + ใส่ "PRE-ORDER" ในช่อง Shop Internal Notes ของ MC (6 พ.ย. 69: เพิ่ม HM-MNS-05)
 //     Olive Oil ไม่ใช่พรีออเดอร์แล้ว (26 ต.ค. 69) -> ไม่ใส่หมายเหตุ Pre-order
-const PREORDER_SKUS = new Set(['HM-GB-01']);                 // HM-GB-01 = GABA
+const PREORDER_SKUS = new Set(['HM-MNS-05', 'HM-GB-01']);    // HM-GB-01 = GABA
 const PREORDER_NAME_KEYWORDS = ['gaba','กาบา','กาบ้า'];       // เผื่อกรณีไม่มี SKU ตรง ให้ดูจากชื่อสินค้า
 const STATUS_FULFILL = 'Fulfill (อนุมัติ)';
 const STATUS_ONHOLD  = 'OnHold (จอง)';
@@ -7870,7 +7920,7 @@ function isPreorderItem(p){
 // ค่าเริ่มต้น: ติ๊กทุกตัว (ทุก SKU เริ่มที่ "อนุมัติ (Fulfill)") — ตัวไหนยังจองอยู่ให้เอาติ๊กออกเอง (26 ต.ค. 69)
 // mcApproval[SKU] = true/false เป็น override ที่ผู้ใช้กด (ถ้าไม่มี key ใช้ค่าเริ่มต้น)
 function skuOf(p){ return String(p['Product Code'] || '').trim().toUpperCase(); }
-function defaultApproved(p){ return true; }
+function defaultApproved(p){ return !isPreorderItem(p); }   // พรีออเดอร์เริ่มที่ "จอง" นอกนั้นเริ่มที่ "อนุมัติ"
 function isSkuApproved(p){
   const sku = skuOf(p);
   if(mcApproval && Object.prototype.hasOwnProperty.call(mcApproval, sku)) return mcApproval[sku];
@@ -8003,7 +8053,7 @@ function buildMcRows(leads, products, contactAccountByLead){
     const extraNotes = [];
     if(preorderItems.length){
       const names = [...new Set(preorderItems.map(p => shortProductName(p['Product Name'])))];
-      extraNotes.push('Pre-order: ' + names.join(', '));
+      extraNotes.push('PRE-ORDER (สินค้าพรีออเดอร์): ' + names.join(', '));
     }
     // ---- ผู้ขาย + ช่องทางขาย (order-level) ----
     const chan = mapSalesChannel(lead);
@@ -8014,7 +8064,8 @@ function buildMcRows(leads, products, contactAccountByLead){
       : mapSalesPerson(lead['Current User Name']);
     if(chan.note) notes.push(chan.note);   // ช่องทางขายที่ระบุไม่ได้ = ต้องตรวจสอบ (นับเป็น flagged)
     // Admin instructions lead the MC internal note; retain existing data-quality and pre-order notes.
-    const allNotes = (adminNote ? ['หมายเหตุภายใน: ' + adminNote] : []).concat(notes, extraNotes);
+    // พรีออเดอร์ขึ้นก่อนหมายเหตุตรวจข้อมูล ให้คนแพ็กเห็นทันที
+    const allNotes = (adminNote ? ['หมายเหตุภายใน: ' + adminNote] : []).concat(extraNotes, notes);
 
     // ---- ราคาต่อหน่วย: ยอดรวม (Price x QTY) ต้องตรงกับที่เก็บลูกค้าจริง "เป๊ะ" ไม่ใช่ประมาณการ ----
     // MC ไม่มีช่องส่วนลด/ยอดรวมแยก ราคาที่กรอกจึงต้องเป็น "ราคาต่อหน่วย" ที่คูณจำนวนชิ้นแล้วตรงเป๊ะ
@@ -13292,6 +13343,7 @@ function renderAll(){
   renderBackendCards();
   if(appPage === 'customers') renderCustomerPage();
   if(appPage === 'compare') renderComparePage();
+  if(appPage === 'returns') renderReturnsPage();
 }
 /* การ์ดในแผง "จัดการข้อมูล (หลังบ้าน)" — ส่วนใหญ่ไม่มีใครเปิดดู จึงไม่วาดทุกครั้งที่เปลี่ยนวัน/ทีม
    ถ้าแผงปิดอยู่จะตั้งธงไว้ แล้ววาดทีเดียวตอนกดเปิดแผง (ดู setupBackendPanel) */
@@ -14588,8 +14640,8 @@ function cxlRestoreForm(row, draft){
      - ออเดอร์ของ "ช่วงที่เลือก" อ่านจาก DATA.allLeads  -> เดินตามตัวกรองทีม/ผู้ดูแล/Focus สินค้า
      - ประวัติการซื้อของลูกค้าแต่ละคนอ่านจาก DATA.historyLeads -> ทุกทีม ทุกวันในข้อมูล (รวมเดือนของปีก่อน)
    หน้านี้แสดงเฉพาะเดือนของปีล่าสุด (DATA.displayFrom) แต่ข้อมูลปีก่อนยังใช้ตัดสินว่าใครเป็นลูกค้าเก่า/ใหม่ */
-const APP_PAGES = ['sales', 'customers', 'compare'];
-const pageFromHash = () => location.hash === '#customers' ? 'customers' : location.hash === '#compare' ? 'compare' : 'sales';
+const APP_PAGES = ['sales', 'customers', 'compare', 'returns'];
+const pageFromHash = () => { const h = location.hash.slice(1); return APP_PAGES.includes(h) ? h : 'sales'; };
 let appPage = pageFromHash();
 let cpScope = 'year';           // 'year' = ทั้งปี หรือ 'YYYY-MM' = รายเดือน
 let cpCache = null;             // { key, R } กันคำนวณซ้ำตอน renderAll
@@ -14600,6 +14652,7 @@ function setAppPage(p){
   applyAppPage();
   if(appPage === 'customers') renderCustomerPage();
   if(appPage === 'compare') renderComparePage();
+  if(appPage === 'returns') renderReturnsPage();
   if(typeof hideTip === 'function') hideTip();
   window.scrollTo({ top:0 });
 }
@@ -14607,6 +14660,7 @@ function applyAppPage(){
   const on = appPage === 'customers';
   document.body.classList.toggle('page-customers', on);
   document.body.classList.toggle('page-compare', appPage === 'compare');
+  document.body.classList.toggle('page-returns', appPage === 'returns');
   document.querySelectorAll('#pageTabs button[data-page]').forEach(b => {
     const a = b.dataset.page === appPage;
     b.classList.toggle('active', a);
@@ -14615,6 +14669,11 @@ function applyAppPage(){
   const h1 = document.querySelector('.topbar .greet h1'), sub = document.querySelector('.topbar .greet p');
   const cmp = appPage === 'compare';
   if(h1) h1.textContent = on ? 'Customer Overview' : cmp ? 'Period Comparison' : 'Sales & Promotion Dashboard';
+  if(appPage === 'returns'){
+    if(h1) h1.textContent = 'Returns — ตีคืน MC';
+    if(sub) sub.textContent = 'ตีคืนเท่าไหร่ อะไรบ้าง เพราะอะไร — อัปโหลดไฟล์ตีคืนทุกวัน ทีมใส่เหตุผลเพิ่มได้';
+    return;
+  }
   if(sub) sub.textContent = on ? 'ภาพรวมฐานลูกค้า ลูกค้าใหม่ ลูกค้าเก่า และการกลับมาซื้อซ้ำ' : cmp ? 'เทียบยอดขายระหว่าง 2 ช่วงเวลา แบบเลือกวันได้อิสระ' : 'ภาพรวมยอดขาย โปรโมชัน และทีมขาย';
 }
 
@@ -15513,6 +15572,352 @@ function renderComparePage(){
     el.addEventListener('pointerleave', hideTip);
   });
 }
+
+// ==================== หน้า "ตีคืน MC" (6 พ.ย. 69) ====================
+/* ไฟล์ "ตีคืน MC.xlsx" ที่ทีมกรอกเอง (ชีตละเดือน) — ผู้ดูแลอัปโหลดทุกวัน แล้วกด "บันทึกลง Database" พร้อมรอบข้อมูล
+   -> ทุกคนเห็นว่าตีคืนเท่าไร อะไรบ้าง เพราะอะไร (ชื่อ/เบอร์/ที่อยู่ลูกค้าถูกปิดสำหรับรหัสพนักงาน แบบเดียวกับข้อมูลขาย)
+   เหตุผลที่ทีมใส่เพิ่ม เก็บแยกในตาราง return_notes (พนักงาน/ผู้ดูแลบันทึกได้ทันที) ทับ "เหตุผล" ที่ระบบเดาจากไฟล์
+   หน้านี้เป็นรายงานอย่างเดียว — ไม่หักยอดขาย (หักยอดยังทำที่ทะเบียนปรับยอดในหลังบ้านเหมือนเดิม) */
+let RETURNS_DATA = null;          // { file, at, saved, rows:[...] }
+let rtNotes = null, rtNotesErr = '', rtNotesLoading = false;
+let rtScope = 'all';
+const rtFilter = { q:'', cat:'', outcome:'', carrier:'' };
+let rtShow = 50, rtEditing = null;
+const RT_THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const RT_REASONS = ['ติดต่อลูกค้าไม่ได้','ไม่อยู่ / ไม่สะดวกรับ','ขนส่งไม่ติดต่อ / ส่งไม่ถึง','ลูกค้ายกเลิก / ไม่ได้สั่ง',
+  'ไม่รู้ว่าสินค้าอะไร / จำไม่ได้','จ่ายแล้วแต่ลง COD','ได้รับของแล้ว / ส่งซ้ำ','สินค้าเสียหาย','ที่อยู่ / เบอร์ผิด','อื่น ๆ'];
+const RT_UNSET = 'ยังไม่ระบุเหตุผล';
+const RT_OUTCOMES = ['ส่งใหม่แล้ว','ไม่ส่งใหม่','ติดตามแล้ว รอสรุป','ยังไม่ติดตาม'];
+const RT_PHONE_RE = /(?:\+?66[\s\-.]?|0)[689](?:[\s\-.]?\d){8}|0[2-7](?:[\s\-.]?\d){7}/;
+
+function rtHeader(aoa){
+  for(let i = 0; i < Math.min(10, aoa.length); i++){
+    const row = (aoa[i] || []).map(x => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+    if(row.includes('MC') && row.includes('สินค้า') && row.some(x => /ยอดขาย/.test(x))) return { i, row };
+  }
+  return null;
+}
+function isReturnsWorkbook(wb){
+  return wb.SheetNames.some(sn => !!rtHeader(XLSX.utils.sheet_to_json(wb.Sheets[sn], { header:1, defval:'' })));
+}
+function rtSheetMonth(sn){
+  const s = String(sn).replace(/\s/g, '');
+  return RT_THAI_MONTHS.findIndex(t => s.startsWith(t)) + 1;     // 0 = ไม่รู้
+}
+// วันที่ในไฟล์: Excel บางเดือนอ่าน "2/10" เป็น 10 ก.พ. (สลับวัน/เดือน) -> ใช้เดือนของชื่อชีตช่วยแก้
+function rtDate(v, M){
+  let y, m, d;
+  if(v instanceof Date && !isNaN(v)){ y = v.getFullYear(); m = v.getMonth() + 1; d = v.getDate(); }
+  else if(typeof v === 'number' && v > 20000 && v < 80000){
+    const dt = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000);
+    y = dt.getUTCFullYear(); m = dt.getUTCMonth() + 1; d = dt.getUTCDate();
+  }else{
+    const s = String(v == null ? '' : v).trim();
+    let x = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+    if(x){ d = +x[1]; m = +x[2]; y = +x[3]; if(y < 100) y += y > 40 ? 2500 : 2000; }
+    else{ x = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if(!x) return ''; y = +x[1]; m = +x[2]; d = +x[3]; }
+  }
+  if(y > 2400) y -= 543;
+  if(M && m !== M && d <= 12 && (d === M || d === (M === 1 ? 12 : M - 1))){ const t = m; m = d; d = t; }
+  if(!(m >= 1 && m <= 12 && d >= 1 && d <= 31)) return '';
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+// ช่อง "ชื่อ" ของเดือนหลัง ๆ มีชื่อ+ที่อยู่+เบอร์รวมกัน -> แยกชื่อ (ก่อนคำแรกที่มีตัวเลข) / เบอร์ / ที่อยู่
+function rtSplitPerson(nameCell, shipCell){
+  const clean = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  const s = clean(nameCell), ship = clean(shipCell);
+  const pm = (ship || s).match(RT_PHONE_RE) || s.match(RT_PHONE_RE);
+  const phone = pm ? pm[0].replace(/\D/g, '').replace(/^66/, '0') : '';
+  let name = s, address = ship;
+  if(!ship){
+    const cut = s.search(/\s(?=[^\s]*\d)/);
+    name = cut > 0 ? s.slice(0, cut) : s;
+    address = cut > 0 ? s.slice(cut + 1) : '';
+  }
+  const strip = t => t.replace(new RegExp(RT_PHONE_RE.source, 'g'), ' ').replace(/(?:โทร(?:ศัพท์)?|tel)\s*[.:]?/ig, ' ').replace(/[()]\s*[()]/g, ' ').replace(/\s+/g, ' ').trim();
+  return { name:strip(name).replace(/^คุณ\s*/, ''), phone, address:strip(address) };
+}
+function parseReturnsWorkbook(wb, fileName){
+  const rows = [];
+  wb.SheetNames.forEach(sn => {
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header:1, defval:'' });
+    const h = rtHeader(aoa); if(!h) return;
+    const col = {};
+    h.row.forEach((v, i) => { if(v && col[v] == null) col[v] = i; });
+    const amountKey = h.row.find(x => /ยอดขาย/.test(x));
+    const get = (r, k) => (k && col[k] != null) ? r[col[k]] : '';
+    const txt = (r, k) => String(get(r, k) == null ? '' : get(r, k)).replace(/\s+/g, ' ').trim();
+    const M = rtSheetMonth(sn);
+    for(let i = h.i + 1; i < aoa.length; i++){
+      const r = aoa[i] || [];
+      const mc = String(get(r, 'MC') || '').replace(/\s+/g, '').toUpperCase();
+      if(!mc) continue;
+      const p = rtSplitPerson(get(r, 'ชื่อ'), get(r, 'ข้อมูลการจัดส่ง'));
+      const om = mc.match(/^MC(\d{2})(\d{2})(\d{2})/);
+      const orderDate = om && +om[2] >= 1 && +om[2] <= 12 && +om[3] >= 1 && +om[3] <= 31 ? `20${om[1]}-${om[2]}-${om[3]}` : '';
+      const amt = Number(String(get(r, amountKey)).replace(/[,฿\s]/g, ''));
+      rows.push({ mc, sheet:sn, row:i + 1, date:rtDate(get(r, 'วันที่'), M), orderDate,
+        name:p.name, phone:p.phone, address:p.address,
+        page:txt(r, 'ช่องทางสั่งซื้อ'), product:txt(r, 'สินค้า'), promo:txt(r, 'โปรโมชั่น'),
+        qty:Number(get(r, 'จำนวน')) || 0, amount:isFinite(amt) ? Math.round(amt * 100) / 100 : 0,
+        pay:txt(r, 'ช่องทางชำระ'), seller:txt(r, 'ผู้ขาย'),
+        remark:txt(r, 'หมายเหตุ'), status:txt(r, 'การติดตาม'), reason:txt(r, 'หมายเหตุการติดตาม'),
+        note:txt(r, 'หมายเหตุจากคนอนุมัติ'), reship:txt(r, 'การจัดส่งอีกครั้ง'), rekey:txt(r, 'คีย์ออเดอร์ใหม่') });
+    }
+  });
+  if(!rows.length) throw new Error('ไม่พบตารางตีคืนในไฟล์ (ต้องมีหัวคอลัมน์ MC / สินค้า / ยอดขาย)');
+  return { file:fileName, at:new Date().toISOString(), saved:false, rows };
+}
+
+// ---- จัดกลุ่ม ----
+function rtAutoReason(r){
+  const t = String(r.reason || '').trim();
+  // "จัดส่งใหม่ เพราะ…" = ผลลัพธ์ ไม่ใช่เหตุผล -> ตัดออกแล้วดูส่วนที่เหลือ
+  const s = t.replace(/^(?:ยัง)?(?:รับสินค้า)?\s*จัดส่ง(?:ให้)?ใหม่(?:แล้ว|ให้)?\s*(?:เพราะ(?:ว่า)?)?/, '').trim();
+  const has = re => re.test(s);
+  if(!s) return /แตก|เสียหาย|บุบ|เปียก|หัก/.test(r.remark || '') ? 'สินค้าเสียหาย' : RT_UNSET;
+  if(has(/แตก|เสียหาย|บุบ|เปียก|หัก/)) return 'สินค้าเสียหาย';
+  if(has(/โอน|จ่ายเงินแล้ว|ชำระแล้ว|ลง\s*cod|เก็บปลายทาง|เรียกเก็บ/i)) return 'จ่ายแล้วแต่ลง COD';
+  if(has(/ได้รับ.{0,12}แล้ว|ส่งซ้ำ|สั่งซ้ำ|ออเดอร์ซ้ำ/)) return 'ได้รับของแล้ว / ส่งซ้ำ';
+  if(has(/สินค้าอะไร|จำไม่ได้|ไม่รู้จัก/)) return 'ไม่รู้ว่าสินค้าอะไร / จำไม่ได้';
+  if(has(/ไม่อยู่|ไม่ได้อยู่|ไม่ค่อยอยู่|ไม่สะดวก|ต่างจังหวัด|ไม่มีคน|ไม่ว่าง|ไม่ได้เข้าที่ทำงาน/)) return 'ไม่อยู่ / ไม่สะดวกรับ';
+  if(has(/ขนส่ง|น้ำท่วม|ไม่ได้รับสาย/)) return 'ขนส่งไม่ติดต่อ / ส่งไม่ถึง';
+  if(has(/ที่อยู่ผิด|เบอร์ผิด|ผิดเบอร์|ที่อยู่ไม่ครบ/)) return 'ที่อยู่ / เบอร์ผิด';
+  if(has(/ไม่รับสาย|ปิดเครื่|ติดต่อไม่ได้|ติดต่อไม่ติด|รอตอบ|ไม่ตอบ|ไม่มีหมายเลข|วางสาย|รับแล้ววาง|ตัดสาย|โทรกลับไม่รับ|เบอร์/)) return 'ติดต่อลูกค้าไม่ได้';
+  if(has(/ยกเลิก|ไม่ได้สั่ง|ไม่เอา|ไม่ต้องการ|เปลี่ยนใจ|ทานแล้ว|มีแล้ว|ไม่รับสินค้า|ไม่รับของ|ตัวอื่น|ไม่มีเงิน/)) return 'ลูกค้ายกเลิก / ไม่ได้สั่ง';
+  // "จัดส่งใหม่ 6 ขวด / จัดส่ง 30 ก.ย." = รายละเอียดการส่งใหม่ ไม่ใช่เหตุผล
+  if(s !== t) return RT_UNSET;
+  return 'อื่น ๆ';
+}
+function rtCarrier(r){
+  const s = r.remark || '';
+  if(/ลูกค้าส่งคืน|ส่งคืนจากลูกค้า/.test(s)) return 'ลูกค้าส่งคืนเอง';
+  const rej = /ปฏิเสธ/.test(s), fail = /ส่งไม่สำเร็จ/.test(s);
+  if(rej && fail) return 'ส่งไม่สำเร็จ + ปฏิเสธรับ';
+  if(rej) return 'ปฏิเสธการรับ';
+  if(fail) return 'ส่งไม่สำเร็จ';
+  return s.trim() ? 'อื่น ๆ' : 'ไม่ระบุ';
+}
+function rtOutcome(r){
+  const t = r.reason || '';
+  if(/จัดส่งอีกครั้ง/.test(r.reship || '') || /คีย์ออเดอร์ใหม่/.test(r.rekey || '') || /จัดส่ง(?:ให้)?ใหม่|ส่งใหม่/.test(t)) return 'ส่งใหม่แล้ว';
+  if(/ไม่คีย์/.test(r.rekey || '') || /ยกเลิก/.test(t)) return 'ไม่ส่งใหม่';
+  if(!String(r.status || '').trim() || /ยังไม่ติดตาม/.test(r.status)) return 'ยังไม่ติดตาม';
+  return 'ติดตามแล้ว รอสรุป';
+}
+const rtDamaged = r => /แตก|เสียหาย|บุบ|เปียก|หัก/.test((r.remark || '') + ' ' + (r.reason || ''));
+const rtProducts = r => [...new Set(String(r.product || '').split(/[,،+\/]|\s+และ\s+/).map(x => x.trim().replace(/^daliy/i, 'Daily')).filter(Boolean))];
+const rtMonthOf = r => (r.date || r.orderDate || '').slice(0, 7);
+function rtTeam(r){ return rtNotes && rtNotes[r.mc] || null; }
+function rtReasonOf(r){ const n = rtTeam(r); return (n && n.cat) || rtAutoReason(r); }
+const rtMonthLabel = mk => { const [y, m] = mk.split('-').map(Number); return `${RT_THAI_MONTHS[m - 1]} ${String(y + 543).slice(2)}`; };
+
+function rtLoadNotes(){
+  if(rtNotesLoading || rtNotes) return;
+  if(!window.HylmeVault || !HylmeVault.apiMode()){ rtNotes = {}; rtNotesErr = 'ใส่เหตุผลได้เฉพาะหน้าเว็บที่ใช้ database'; return; }
+  rtNotesLoading = true;
+  HylmeVault.returnNotes.load()
+    .then(n => { rtNotes = n; rtNotesErr = ''; })
+    .catch(e => { rtNotes = {}; rtNotesErr = 'โหลดเหตุผลที่ทีมใส่ไม่ได้: ' + e.message; })
+    .finally(() => { rtNotesLoading = false; if(appPage === 'returns') renderReturnsPage(); });
+}
+
+async function rtUpload(file){
+  if(!file) return;
+  try{
+    const wb = XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:true });
+    if(!isReturnsWorkbook(wb)) throw new Error('ไฟล์นี้ไม่ใช่ไฟล์ตีคืน MC (ต้องมีหัวคอลัมน์ MC / สินค้า / ยอดขาย)');
+    const prev = RETURNS_DATA;
+    RETURNS_DATA = parseReturnsWorkbook(wb, file.name);
+    rtScope = 'all'; rtShow = 50;
+    renderReturnsPage();
+    const newMc = prev ? RETURNS_DATA.rows.filter(r => !prev.rows.some(p => p.mc === r.mc)).length : RETURNS_DATA.rows.length;
+    const ok = await HylmeVault.dialog({ title:'อ่านไฟล์ตีคืนแล้ว', okText:'⬆ บันทึกลง Database เลย', cancelText:'ไว้ทีหลัง',
+      message:`${file.name}\nตีคืน ${fmtNum(RETURNS_DATA.rows.length)} ออเดอร์${prev ? ` (ใหม่ ${fmtNum(newMc)} ออเดอร์)` : ''} • ${fmtBaht(RETURNS_DATA.rows.reduce((s, r) => s + r.amount, 0))}\n\nตอนนี้เห็นแค่เครื่องนี้ — กดบันทึกลง Database ให้ทีมเห็นด้วย`});
+    if(ok && HylmeVault.apiMode()) await HylmeVault.publishFromPage();
+  }catch(e){
+    HylmeVault.notice('อ่านไฟล์ตีคืนไม่ได้ ❌', e.message);
+  }
+}
+async function rtSaveNote(mc){
+  const box = document.querySelector(`.rt-edit[data-mc="${CSS.escape(mc)}"]`);
+  if(!box) return;
+  const cat = box.querySelector('.rt-cat').value, note = box.querySelector('.rt-note').value.trim(), by = box.querySelector('.rt-by').value.trim();
+  const btn = box.querySelector('.rt-save'), err = box.querySelector('.rt-err');
+  btn.disabled = true; btn.textContent = 'กำลังบันทึก…'; err.textContent = '';
+  try{
+    try{ localStorage.setItem('hylme_rt_by', by); }catch(e){}
+    const res = await HylmeVault.returnNotes.save(mc, { cat, note, by });
+    if(res.deleted) delete rtNotes[mc]; else rtNotes[mc] = res.note;
+    rtEditing = null;
+    renderReturnsPage();
+  }catch(e){
+    err.textContent = 'บันทึกไม่สำเร็จ: ' + e.message;
+    btn.disabled = false; btn.textContent = 'บันทึก';
+  }
+}
+
+function renderReturnsPage(){
+  const host = document.getElementById('rtBody');
+  if(!host) return;
+  const admin = !window.HylmeVault || !HylmeVault.isLocked();
+  const uploadBtn = `<button class="btn primary" id="rtUploadBtn">⬆ อัปโหลดไฟล์ตีคืน MC</button><input type="file" id="rtFile" accept=".xlsx,.xls" hidden>`;
+  const D = RETURNS_DATA;
+  if(!D || !D.rows || !D.rows.length){
+    host.innerHTML = `<div class="card cp-empty"><h3 style="margin:0 0 8px;">ยังไม่มีข้อมูลตีคืน</h3>
+      <p class="cp-muted" style="margin:0 0 14px;">อัปโหลดไฟล์ "ตีคืน MC.xlsx" (ชีตละเดือน) — ${admin ? 'อ่านเสร็จแล้วกดบันทึกลง Database ให้ทีมเห็น' : 'ต้องใช้รหัสผู้ดูแล'}</p>${uploadBtn}</div>`;
+    return;
+  }
+  rtLoadNotes();
+  const months = [...new Set(D.rows.map(rtMonthOf).filter(Boolean))].sort();
+  if(rtScope !== 'all' && !months.includes(rtScope)) rtScope = 'all';
+  const rows = D.rows.filter(r => rtScope === 'all' || rtMonthOf(r) === rtScope);
+  const sum = (list, f) => list.reduce((s, r) => s + (f ? f(r) : r.amount), 0);
+  const total = sum(rows), units = sum(rows, r => r.qty);
+  const by = (list, keyFn) => {
+    const m = new Map();
+    list.forEach(r => [].concat(keyFn(r)).forEach(k => { const x = m.get(k) || { name:k, orders:0, sales:0 }; x.orders++; x.sales += r.amount; m.set(k, x); }));
+    return [...m.values()].sort((a, b) => b.orders - a.orders || b.sales - a.sales);
+  };
+  const outcomes = by(rows, rtOutcome);
+  const oc = k => (outcomes.find(x => x.name === k) || { orders:0, sales:0 });
+  const reasons = by(rows, rtReasonOf), carriers = by(rows, rtCarrier);
+  const products = by(rows, r => { const p = rtProducts(r); return p.length ? p : ['ไม่ระบุสินค้า']; });
+  const pages = by(rows, r => r.page || 'ไม่ระบุ'), sellers = by(rows, r => r.seller || 'ไม่ระบุ');
+  const damaged = rows.filter(rtDamaged);
+  const teamN = rows.filter(r => rtTeam(r)).length;
+  const scopeLabel = rtScope === 'all' ? 'ทุกเดือนในไฟล์' : rtMonthLabel(rtScope);
+  const row = (list, color, n) => cpRows(list.slice(0, n || 8), { val:x => x.orders, color:() => color,
+    sub:x => `${fmtBaht(x.sales)} • ${cpPctTxt(cpPct(x.sales, total))} ของมูลค่า`,
+    tip:x => `${x.name}: ${fmtNum(x.orders)} ออเดอร์ • ${fmtBaht(x.sales)}`,
+    fmt:x => `${fmtNum(x.orders)} ออเดอร์<small>${cpPctTxt(cpPct(x.orders, rows.length))}</small>` });
+  const chips = `<button class="chip${rtScope === 'all' ? ' active' : ''}" data-rtscope="all">ทั้งหมด</button>` +
+    months.map(mk => `<button class="chip${rtScope === mk ? ' active' : ''}" data-rtscope="${mk}">${rtMonthLabel(mk)}</button>`).join('');
+  const monthly = months.map(mk => { const l = D.rows.filter(r => rtMonthOf(r) === mk); return { name:rtMonthLabel(mk), orders:l.length, sales:sum(l) }; });
+  const savedTxt = D.saved === false ? `<span class="rt-unsaved">ยังไม่ได้บันทึกลง Database — ทีมยังไม่เห็นไฟล์นี้</span>` : '';
+
+  host.innerHTML = `
+    <div class="rt-bar">
+      <div class="cp-scope-note" style="margin:0;">ไฟล์: <b>${cpEsc(D.file || '-')}</b> • อัปโหลด ${D.at ? new Date(D.at).toLocaleString('th-TH') : '-'} ${savedTxt}<br>
+        นับตาม "วันที่" ในไฟล์ตีคืน • รายงานอย่างเดียว ไม่หักยอดขายในแดชบอร์ด</div>
+      <div class="rt-bar-btns">${admin ? uploadBtn : ''}${admin && D.saved === false && HylmeVault.apiMode() ? '<button class="btn" id="rtPublish">⬆ บันทึกลง Database</button>' : ''}</div>
+    </div>
+    <div class="cp-filters"><div class="chips period-scroll cp-chips">${chips}</div></div>
+
+    <div class="premium-section-head"><span class="ps-num">01</span><div class="ps-copy"><div class="ps-title">ตีคืนเท่าไหร่</div><div class="ps-sub">${cpEsc(scopeLabel)}</div></div></div>
+    <div class="cp-kpi">
+      <div class="kpi-hero"><div><div class="lbl">ออเดอร์ตีคืน</div><div class="val">${fmtNum(rows.length)} ออเดอร์</div></div>
+        <div class="sub">มูลค่า ${fmtBaht(total)} • ${fmtNum(units)} ชิ้น</div></div>
+      <div class="kpi-tile"><div class="lbl">ส่งใหม่แล้ว</div><div class="val">${fmtNum(oc('ส่งใหม่แล้ว').orders)} ออเดอร์</div><div class="hint">${fmtBaht(oc('ส่งใหม่แล้ว').sales)} • ${cpPctTxt(cpPct(oc('ส่งใหม่แล้ว').orders, rows.length))} ของที่ตีคืน</div></div>
+      <div class="kpi-tile"><div class="lbl">ไม่ส่งใหม่ (เสียยอด)</div><div class="val">${fmtBaht(oc('ไม่ส่งใหม่').sales)}</div><div class="hint">${fmtNum(oc('ไม่ส่งใหม่').orders)} ออเดอร์ — ยกเลิก / ไม่คีย์ออเดอร์ใหม่</div></div>
+      <div class="kpi-tile"><div class="lbl">ยังไม่ติดตาม</div><div class="val">${fmtNum(oc('ยังไม่ติดตาม').orders)} ออเดอร์</div><div class="hint">${fmtBaht(oc('ยังไม่ติดตาม').sales)} • ติดตามแล้วรอสรุป ${fmtNum(oc('ติดตามแล้ว รอสรุป').orders)}</div></div>
+    </div>
+
+    <div class="premium-section-head"><span class="ps-num">02</span><div class="ps-copy"><div class="ps-title">ตีคืนเพราะอะไร</div><div class="ps-sub">เหตุผล = ที่ทีมใส่ในหน้านี้ (${fmtNum(teamN)} ออเดอร์) ถ้าไม่มี ระบบเดาจาก "หมายเหตุการติดตาม" ในไฟล์ • กดแถบเพื่อกรองตารางด้านล่าง</div></div></div>
+    <div class="grid2">
+      <div class="card"><div class="card-head"><div><h3>เหตุผลที่ตีคืน</h3><div class="card-sub">จากการโทรติดตามลูกค้า</div></div></div>${row(reasons, 'var(--series-6)', 10).replace(/class="cp-row"/g, 'class="cp-row rt-click" data-rtcat')}</div>
+      <div class="card"><div class="card-head"><div><h3>ขนส่งแจ้งว่า</h3><div class="card-sub">ช่อง "หมายเหตุ" ในไฟล์${damaged.length ? ` • สินค้าเสียหาย (แตก/บุบ/เปียก) ${fmtNum(damaged.length)} ออเดอร์` : ''}</div></div></div>${row(carriers, 'var(--series-8)')}</div>
+    </div>
+
+    <div class="premium-section-head"><span class="ps-num">03</span><div class="ps-copy"><div class="ps-title">ตีคืนอะไรบ้าง</div><div class="ps-sub">1 ออเดอร์นับได้หลายสินค้า • มูลค่า = ยอดทั้งออเดอร์</div></div></div>
+    <div class="grid2">
+      <div class="card"><div class="card-head"><div><h3>สินค้า</h3></div></div>${row(products, 'var(--series-1)', 10)}</div>
+      <div class="card"><div class="card-head"><div><h3>ผลการติดตาม</h3><div class="card-sub">ส่งใหม่ = จัดส่งอีกครั้ง / คีย์ออเดอร์ใหม่ • ไม่ส่งใหม่ = ยกเลิก / ไม่คีย์</div></div></div>${row(RT_OUTCOMES.map(k => oc(k) && { name:k, ...oc(k) }).filter(x => x.orders), 'var(--series-2)')}</div>
+    </div>
+    <div class="grid2">
+      <div class="card"><div class="card-head"><div><h3>เพจ / ช่องทางสั่งซื้อ</h3></div></div>${row(pages, 'var(--series-5)')}</div>
+      <div class="card"><div class="card-head"><div><h3>ผู้ขาย</h3></div></div>${row(sellers, 'var(--series-3)')}</div>
+    </div>
+    ${rtScope === 'all' && monthly.length > 1 ? `<div class="card" style="margin-bottom:14px;"><div class="card-head"><div><h3>ตีคืนรายเดือน</h3></div></div>${row(monthly.slice().reverse(), 'var(--series-1)', 24)}</div>` : ''}
+
+    <div class="premium-section-head"><span class="ps-num">04</span><div class="ps-copy"><div class="ps-title">รายการตีคืน</div><div class="ps-sub">ใส่ / แก้เหตุผลได้ทุกคน (บันทึกทันที ทีมเห็นเลย)${rtNotesErr ? ` • <span style="color:var(--critical)">${cpEsc(rtNotesErr)}</span>` : ''}</div></div></div>
+    <div class="card" style="margin-bottom:14px;">
+      <div class="rt-filters">
+        <input type="search" id="rtQ" placeholder="ค้นหา MC / ชื่อ / สินค้า / เหตุผล" value="${cpEsc(rtFilter.q)}">
+        <select id="rtCat"><option value="">ทุกเหตุผล</option>${[...RT_REASONS, RT_UNSET].map(k => `<option${rtFilter.cat === k ? ' selected' : ''}>${k}</option>`).join('')}</select>
+        <select id="rtOutcome"><option value="">ทุกผลการติดตาม</option>${RT_OUTCOMES.map(k => `<option${rtFilter.outcome === k ? ' selected' : ''}>${k}</option>`).join('')}</select>
+      </div>
+      <div id="rtTable"></div>
+    </div>`;
+  renderReturnsTable(rows);
+}
+function renderReturnsTable(scoped){
+  const box = document.getElementById('rtTable');
+  if(!box || !RETURNS_DATA) return;
+  const rows = scoped || RETURNS_DATA.rows.filter(r => rtScope === 'all' || rtMonthOf(r) === rtScope);
+  const q = rtFilter.q.trim().toLowerCase();
+  const list = rows.filter(r => (!rtFilter.cat || rtReasonOf(r) === rtFilter.cat) && (!rtFilter.outcome || rtOutcome(r) === rtFilter.outcome)
+      && (!q || [r.mc, r.name, r.product, r.promo, r.reason, r.remark, r.page, r.seller, (rtTeam(r) || {}).note].some(v => String(v || '').toLowerCase().includes(q))))
+    .sort((a, b) => (b.date || b.orderDate).localeCompare(a.date || a.orderDate) || b.row - a.row);
+  const canEdit = !rtNotesErr && rtNotes;
+  const byDefault = (() => { try{ return localStorage.getItem('hylme_rt_by') || ''; }catch(e){ return ''; } })();
+  const d = s => s ? fmtDMY(cpDay(s)) : '-';
+  const body = list.slice(0, rtShow).map(r => {
+    const n = rtTeam(r), reason = rtReasonOf(r), oc = rtOutcome(r);
+    const team = n ? `<div class="rt-team"><b>${cpEsc(n.cat || '—')}</b>${n.note ? ` — ${cpEsc(n.note)}` : ''}<small>${cpEsc(n.by || 'ไม่ระบุชื่อ')} • ${n.at ? new Date(n.at).toLocaleString('th-TH', { dateStyle:'short', timeStyle:'short' }) : ''}</small></div>`
+      : `<span class="cp-muted">เดา: ${cpEsc(reason)}</span>`;
+    const editor = rtEditing === r.mc ? `<tr class="rt-edit-row"><td colspan="9"><div class="rt-edit" data-mc="${cpEsc(r.mc)}">
+        <label>เหตุผล<select class="rt-cat"><option value="">— ไม่เลือก —</option>${RT_REASONS.map(k => `<option${(n ? n.cat : reason) === k ? ' selected' : ''}>${k}</option>`).join('')}</select></label>
+        <label class="rt-grow">รายละเอียด<textarea class="rt-note" rows="2" maxlength="1000" placeholder="เช่น ลูกค้าแจ้งว่าไม่ได้สั่ง / นัดส่งใหม่วันที่ …">${cpEsc(n ? n.note : '')}</textarea></label>
+        <label>ผู้บันทึก<input class="rt-by" maxlength="60" value="${cpEsc(n && n.by || byDefault)}" placeholder="ชื่อเล่น"></label>
+        <div class="rt-edit-btns"><button class="btn primary rt-save" data-mc="${cpEsc(r.mc)}">บันทึก</button><button class="btn rt-cancel">ยกเลิก</button>
+        ${n ? `<button class="btn rt-del" data-mc="${cpEsc(r.mc)}" title="ลบเหตุผลที่ทีมใส่">ลบ</button>` : ''}</div>
+        <div class="rt-err" role="status"></div></div></td></tr>` : '';
+    return `<tr>
+      <td>${d(r.date)}<small class="rt-sub">สั่ง ${d(r.orderDate)}</small></td>
+      <td class="rt-mc">${cpEsc(r.mc)}</td>
+      <td>${cpEsc(r.name || '-')}<small class="rt-sub">${cpEsc(r.page || '')}${r.seller ? ' • ' + cpEsc(r.seller) : ''}</small></td>
+      <td>${cpEsc(r.promo || r.product || '-')}</td>
+      <td style="text-align:right">${fmtBaht(r.amount)}<small class="rt-sub">${cpEsc(r.pay || '')}</small></td>
+      <td>${cpEsc(rtCarrier(r))}</td>
+      <td>${cpEsc(r.reason || '-')}<small class="rt-sub">${cpEsc(r.status || 'ยังไม่ติดตาม')}${r.note ? ' • ' + cpEsc(r.note) : ''}</small></td>
+      <td><span class="cp-badge ${oc === 'ส่งใหม่แล้ว' ? 'new' : 'rt-neu'}">${cpEsc(oc)}</span></td>
+      <td class="rt-team-cell">${team}${canEdit ? `<button class="table-toggle rt-editbtn" data-mc="${cpEsc(r.mc)}">${n ? '✎ แก้' : '+ ใส่เหตุผล'}</button>` : ''}</td>
+    </tr>${editor}`;
+  }).join('');
+  box.innerHTML = `<div class="cp-muted" style="margin:0 0 8px;">${fmtNum(list.length)} ออเดอร์ • ${fmtBaht(list.reduce((s, r) => s + r.amount, 0))}</div>
+    <div class="scroll-table"><table class="order-table rt-table">
+      <thead><tr><th>วันที่ตีคืน</th><th>MC</th><th>ลูกค้า</th><th>สินค้า</th><th style="text-align:right">ยอด</th><th>ขนส่งแจ้ง</th><th>ติดตามลูกค้า (ในไฟล์)</th><th>ผล</th><th>เหตุผลที่ทีมใส่</th></tr></thead>
+      <tbody>${body || '<tr><td colspan="9" class="cp-muted">ไม่มีรายการที่ตรงกับตัวกรอง</td></tr>'}</tbody></table></div>
+    ${list.length > rtShow ? `<div style="text-align:center;margin-top:10px;"><button class="btn" id="rtMore">แสดงเพิ่ม (${fmtNum(list.length - rtShow)} รายการ)</button></div>` : ''}`;
+  const ed = box.querySelector('.rt-edit .rt-note'); if(ed) ed.focus();
+}
+(function initReturnsPage(){
+  const host = document.getElementById('rtBody');
+  if(!host) return;
+  host.addEventListener('click', e => {
+    const t = e.target.closest('button, .rt-click');
+    if(!t) return;
+    if(t.dataset.rtscope){ rtScope = t.dataset.rtscope; rtShow = 50; renderReturnsPage(); return; }
+    if(t.id === 'rtUploadBtn'){
+      const go = () => document.getElementById('rtFile').click();
+      if(HylmeVault.isLocked()) HylmeVault.promptUnlock('อัปโหลดไฟล์ตีคืนได้เฉพาะผู้ดูแล — ใส่รหัสผู้ดูแล').then(ok => { if(ok){ renderReturnsPage(); go(); } });
+      else go();
+      return;
+    }
+    if(t.id === 'rtPublish'){ HylmeVault.publishFromPage(); return; }
+    if(t.id === 'rtMore'){ rtShow += 100; renderReturnsTable(); return; }
+    if(t.classList.contains('rt-click')){
+      const nm = t.querySelector('.nm'); const cat = nm ? nm.firstChild.textContent.trim() : '';
+      rtFilter.cat = rtFilter.cat === cat ? '' : cat; rtShow = 50; renderReturnsPage();
+      const tb = document.getElementById('rtTable'); if(tb) tb.scrollIntoView({ behavior:'smooth', block:'start' });
+      return;
+    }
+    if(t.classList.contains('rt-editbtn')){ rtEditing = t.dataset.mc; renderReturnsTable(); return; }
+    if(t.classList.contains('rt-cancel')){ rtEditing = null; renderReturnsTable(); return; }
+    if(t.classList.contains('rt-save')){ rtSaveNote(t.dataset.mc); return; }
+    if(t.classList.contains('rt-del')){
+      const box = t.closest('.rt-edit'); box.querySelector('.rt-cat').value = ''; box.querySelector('.rt-note').value = '';
+      rtSaveNote(t.dataset.mc); return;
+    }
+  });
+  host.addEventListener('input', e => { if(e.target.id === 'rtQ'){ rtFilter.q = e.target.value; rtShow = 50; renderReturnsTable(); } });
+  host.addEventListener('change', e => {
+    if(e.target.id === 'rtCat'){ rtFilter.cat = e.target.value; rtShow = 50; renderReturnsTable(); }
+    if(e.target.id === 'rtOutcome'){ rtFilter.outcome = e.target.value; rtShow = 50; renderReturnsTable(); }
+    if(e.target.id === 'rtFile'){ rtUpload(e.target.files[0]); e.target.value = ''; }
+  });
+})();
 
 (function initAppPages(){
   const nav = document.getElementById('pageTabs');
