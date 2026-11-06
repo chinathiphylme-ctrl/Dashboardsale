@@ -7,11 +7,18 @@
 // พิสูจน์รหัสผ่าน: เบราว์เซอร์ได้กุญแจจาก PBKDF2(รหัส, salt) แล้วส่ง token = HMAC(กุญแจ, "hylme-api-auth-v1")
 // server เก็บแค่ sha256(token) ในตาราง vault -> ต่อให้ฐานข้อมูลหลุดก็ปลอม token / ถอดข้อมูลไม่ได้
 //
-//   GET  /meta              salt, iter, รอบล่าสุด                     (สาธารณะ)
-//   GET  /public[?id=]      ข้อมูลที่ปิดชื่อ/เบอร์แล้ว                    (สาธารณะ)
-//   GET  /full[?id=]        ข้อมูลจริงที่เข้ารหัส                         (ต้องมี token)
-//   GET  /snapshots         รายการ 20 รอบล่าสุด                         (ต้องมี token)
-//   POST /publish           บันทึกรอบใหม่                               (ต้องมี token)
+// ทั้งเว็บล็อก (6 พ.ย. 69): ต้อง login ก่อนเห็นอะไร มี 2 รหัส
+//   รหัสพนักงาน (viewer)  เห็นข้อมูลที่ปิดชื่อ/เบอร์แล้ว — token แบบเดียวกันแต่ใช้ viewer_salt ของตัวเอง
+//   รหัสผู้ดูแล (admin)    รหัสเดิม — เห็นทุกอย่าง + ข้อมูลจริง / บันทึก / ตั้งรหัสพนักงาน
+//   ยังไม่ได้ตั้งรหัสพนักงาน = เข้าได้เฉพาะรหัสผู้ดูแล (ไม่เปิดให้ใครเข้าโดยไม่มีรหัส)
+//
+//   GET  /meta              salt, iter, viewer_salt (ไว้คำนวณ token)   (สาธารณะ — ไม่มีข้อมูลขาย)
+//   POST /login             {tokens:[...]} -> role ของ token ที่ถูก   (นับเป็นการลองรหัส 1 ครั้ง)
+//   GET  /public[?id=]      ข้อมูลที่ปิดชื่อ/เบอร์แล้ว                    (token พนักงาน หรือ ผู้ดูแล)
+//   GET  /full[?id=]        ข้อมูลจริงที่เข้ารหัส                         (token ผู้ดูแล)
+//   GET  /snapshots         รายการ 20 รอบล่าสุด                         (token ผู้ดูแล)
+//   POST /publish           บันทึกรอบใหม่                               (token ผู้ดูแล)
+//   POST /viewer            ตั้ง/เปลี่ยนรหัสพนักงาน {viewer_salt, viewer_verifier}   (token ผู้ดูแล)
 //   POST /setup             ตั้งรหัสครั้งแรก (ต้องมี SETUP_CODE) / เปลี่ยนรหัส (ต้องมี token เดิม)
 //
 // คุยกับ Postgres ผ่าน SQL-over-HTTP ของ Neon (โปรโตคอลเดียวกับ @neondatabase/serverless) — ไม่ต้อง bundle ไลบรารี
@@ -64,24 +71,39 @@ const meta = (r) => r && {
 };
 
 async function getVault() {
-  const [v] = await sql('SELECT salt, iter, verifier FROM vault WHERE id = 1');
-  return v ? { salt: v.salt, iter: Number(v.iter), verifier: v.verifier } : null;
+  const [v] = await sql('SELECT salt, iter, verifier, viewer_salt, viewer_verifier FROM vault WHERE id = 1');
+  return v ? { salt: v.salt, iter: Number(v.iter), verifier: v.verifier, viewerSalt: v.viewer_salt || null, viewerVerifier: v.viewer_verifier || null } : null;
 }
+const sameHex = (a, b) => !!a && !!b && a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const roleOf = (token, vault) => {          // admin ชนะ viewer
+  if (!token) return null;
+  const h = sha256hex(token);
+  if (sameHex(h, vault.verifier)) return 'admin';
+  if (sameHex(h, vault.viewerVerifier)) return 'viewer';
+  return null;
+};
 const clientIp = (req) => (req.headers.get('x-forwarded-for') || '').split(',')[0].trim();
 async function log(action, ok, req) {
   try { await sql('INSERT INTO auth_log (action, ok, ip) VALUES ($1, $2, $3)', [action, ok, clientIp(req)]); }
   catch (e) { console.warn('auth_log:', e.message); }
 }
-async function authorize(req, action, vault) {
-  if (!vault) return { error: fail(503, 'ยังไม่ได้ตั้งรหัสผ่านของระบบ') };
+async function throttled(req) {
   const [f] = await sql(
     "SELECT count(*) FILTER (WHERE ip = $1) AS mine, count(*) AS total FROM auth_log WHERE NOT ok AND at > now() - interval '15 minutes'",
     [clientIp(req)]);
-  if (Number(f.mine) >= MAX_FAILS_IP || Number(f.total) >= MAX_FAILS_ALL) return { error: fail(429, 'ลองรหัสผิดหลายครั้งเกินไป — รอ 15 นาทีแล้วลองใหม่') };
-  const m = /^Bearer ([A-Za-z0-9+/=_-]{20,200})$/.exec(req.headers.get('authorization') || '');
-  const ok = !!m && timingSafeEqual(Buffer.from(sha256hex(m[1])), Buffer.from(vault.verifier));
+  return Number(f.mine) >= MAX_FAILS_IP || Number(f.total) >= MAX_FAILS_ALL;
+}
+const TOKEN_RE = /^[A-Za-z0-9+/=_-]{20,200}$/;
+// roles = role ที่ใช้ทางนี้ได้ (ค่าเริ่มต้น: ผู้ดูแลเท่านั้น)
+async function authorize(req, action, vault, roles = ['admin']) {
+  if (!vault) return { error: fail(503, 'ยังไม่ได้ตั้งรหัสผ่านของระบบ') };
+  if (await throttled(req)) return { error: fail(429, 'ลองรหัสผิดหลายครั้งเกินไป — รอ 15 นาทีแล้วลองใหม่') };
+  const m = /^Bearer (\S+)$/.exec(req.headers.get('authorization') || '');
+  const role = m && TOKEN_RE.test(m[1]) ? roleOf(m[1], vault) : null;
+  const ok = !!role && roles.includes(role);
   await log(action, ok, req);
-  return ok ? {} : { error: fail(401, 'รหัสผ่านไม่ถูกต้อง') };
+  if (ok) return { role };
+  return { error: role ? fail(403, 'รหัสพนักงานใช้ส่วนนี้ไม่ได้ — ต้องใช้รหัสผู้ดูแล') : fail(401, 'รหัสผ่านไม่ถูกต้อง') };
 }
 async function readJson(req) {
   const len = Number(req.headers.get('content-length') || 0);
@@ -107,17 +129,35 @@ async function route(req) {
   const method = req.method;
   if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
+  const vault = await getVault();
   if (method === 'GET' && (path === '/meta' || path === '/')) {
-    const vault = await getVault();
-    const [latest] = await sql(`SELECT ${META} FROM snapshots ORDER BY id DESC LIMIT 1`);
-    return json({ ok: true, ready: !!vault, salt: vault && vault.salt, iter: vault && vault.iter, latest: meta(latest) || null });
+    return json({ ok: true, ready: !!vault, salt: vault && vault.salt, iter: vault && vault.iter,
+      viewer_salt: vault && vault.viewerVerifier ? vault.viewerSalt : null });
+  }
+  if (method === 'POST' && path === '/login') {
+    if (!vault) return fail(503, 'ยังไม่ได้ตั้งรหัสผ่านของระบบ');
+    if (await throttled(req)) return fail(429, 'ลองรหัสผิดหลายครั้งเกินไป — รอ 15 นาทีแล้วลองใหม่');
+    const b = await readJson(req);
+    const tokens = Array.isArray(b.tokens) ? b.tokens.filter((t) => typeof t === 'string' && TOKEN_RE.test(t)).slice(0, 2) : [];
+    const roles = tokens.map((t) => roleOf(t, vault));
+    const role = roles.includes('admin') ? 'admin' : roles.includes('viewer') ? 'viewer' : null;
+    await log('login', !!role, req);
+    return role ? json({ ok: true, role, index: roles.indexOf(role) }) : fail(401, 'รหัสผ่านไม่ถูกต้อง');
   }
   if (method === 'GET' && path === '/public') {
+    const a = await authorize(req, 'public', vault, ['admin', 'viewer']); if (a.error) return a.error;
     const row = await pick('public_gz', url);
     return row ? json({ ok: true, ...meta(row), public_gz: row.public_gz }) : fail(404, 'ยังไม่มีข้อมูล');
   }
+  if (method === 'POST' && path === '/viewer') {
+    const a = await authorize(req, 'viewer-set', vault); if (a.error) return a.error;
+    const b = await readJson(req);
+    if (typeof b.viewer_salt !== 'string' || !B64.test(b.viewer_salt) || b.viewer_salt === vault.salt
+      || typeof b.viewer_verifier !== 'string' || !/^[0-9a-f]{64}$/.test(b.viewer_verifier)) return fail(400, 'viewer_salt / viewer_verifier ไม่ถูกต้อง');
+    await sql('UPDATE vault SET viewer_salt = $1, viewer_verifier = $2, updated_at = now() WHERE id = 1', [b.viewer_salt, b.viewer_verifier]);
+    return json({ ok: true });
+  }
 
-  const vault = await getVault();
   if (method === 'GET' && path === '/full') {
     const a = await authorize(req, 'full', vault); if (a.error) return a.error;
     const row = await pick('full_enc', url);

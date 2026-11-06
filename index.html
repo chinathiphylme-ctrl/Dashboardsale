@@ -26,7 +26,17 @@
   .hv-card .hv-field input{ display:block; width:100%; margin-top:4px; padding:9px 11px; font:inherit; font-size:14px; font-weight:400;
     color:var(--text-primary); background:var(--surface-1); border:1px solid var(--border); border-radius:10px; }
   .hv-card .hv-field + .hv-row{ margin-top:16px; }
+  /* ล็อกทั้งเว็บ: ซ่อนหน้าจนกว่าจะ login + โหลดข้อมูลเสร็จ */
+  html.hv-gated .app-shell{ visibility:hidden; }
+  html.hv-gated body::after{ content:'กำลังโหลด…'; position:fixed; inset:0; display:grid; place-items:center;
+    font:14px var(--font, system-ui); color:var(--text-muted, #888); pointer-events:none; }
+  html.hv-gated body:has(.hv-gate)::after{ content:none; }
+  .hv-gate{ position:fixed; inset:0; z-index:10000; display:grid; place-items:center; padding:16px; background:var(--page, #f2f1ec); }
+  .hv-gate .hv-card{ max-width:400px; }
+  .hv-gate .hv-row .btn{ width:100%; justify-content:center; }
+  .hv-gate-brand{ font-size:22px; font-weight:800; letter-spacing:.02em; margin-bottom:14px; }
 </style>
+<script>document.documentElement.classList.add('hv-gated');</script>
 <script>
 /* ==================== HYLME VAULT — ดูได้ทุกคน / ข้อมูลจริงต้องใช้รหัส ====================
    index.html บน GitHub มีข้อมูล 2 ชุด
@@ -320,10 +330,115 @@
      token ยืนยันตัว = HMAC(กุญแจ AES ดิบ, "hylme-api-auth-v1") — ส่งแค่ token ไม่เคยส่งรหัสผ่าน/กุญแจ
      server เก็บแค่ sha256(token) จึงถอดข้อมูลจริงไม่ได้ */
   async function authToken(key){ return b64e(hmacFactory(new Uint8Array(await crypto.subtle.exportKey('raw', key)))('hylme-api-auth-v1')); }
+  /* ---------- ล็อกทั้งเว็บ: ต้อง login ก่อนเห็นอะไร (6 พ.ย. 69) ----------
+     รหัสพนักงาน -> เห็นข้อมูลที่ปิดชื่อ/เบอร์ • รหัสผู้ดูแล (รหัสเดิม) -> เห็นข้อมูลจริงทันที
+     เก็บแค่ token (ไม่เก็บรหัสผ่าน) ไว้ในแท็บนี้ หรือในเครื่องนี้ถ้าติ๊ก "จำไว้" • เปลี่ยนรหัสพนักงาน = ทุกคนที่ใช้รหัสเก่าต้อง login ใหม่ */
+  const SESSION_KEY = 'hylme_session_v1';
+  const S = {token:null, role:null};
+  const store = {
+    get(){ for(const st of [sessionStorage, localStorage]){ try{ const v = JSON.parse(st.getItem(SESSION_KEY) || 'null'); if(v && v.tok) return v; }catch(e){} } return null; },
+    set(v, remember){ try{ (remember ? localStorage : sessionStorage).setItem(SESSION_KEY, JSON.stringify(v)); }catch(e){} },
+    clear(){ for(const st of [sessionStorage, localStorage]){ try{ st.removeItem(SESSION_KEY); }catch(e){} } },
+  };
+  const gateOff = () => document.documentElement.classList.remove('hv-gated');
+  async function sha256hexStr(s){ return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(s)))).map(b => b.toString(16).padStart(2, '0')).join(''); }
+  async function rawKey(key){ return b64e(new Uint8Array(await crypto.subtle.exportKey('raw', key))); }
+  // คืน true เมื่อมี token พร้อมใช้ (จากที่จำไว้ หรือ login ผ่านหน้าจอ)
+  async function ensureLogin(force){
+    if(!force){
+      let saved = null;
+      try{ saved = JSON.parse(localStorage.getItem(REMEMBER_KEY) || 'null'); }catch(e){}
+      const env = fullEnv();
+      if(saved && saved.salt === env.salt && saved.iter === env.iter){       // ผู้ดูแลที่ "จำไว้ในเครื่องนี้"
+        try{ S.token = await authToken(await crypto.subtle.importKey('raw', b64d(saved.k), {name:'AES-GCM'}, true, ['encrypt', 'decrypt'])); S.role = 'admin'; return true; }catch(e){}
+      }
+      const s = store.get();
+      if(s){ S.token = s.tok; S.role = s.role; return true; }
+    }
+    return showGate();
+  }
+  function showGate(errMsg){
+    return new Promise(resolve => {
+      document.documentElement.classList.add('hv-gated');
+      const old = document.getElementById('hvGate'); if(old) old.remove();
+      const ov = document.createElement('div');
+      ov.className = 'hv-gate'; ov.id = 'hvGate';
+      ov.innerHTML = '<form class="hv-card" aria-labelledby="hvGateTitle">'
+        + '<div class="hv-gate-brand">Hylme</div>'
+        + '<h2 id="hvGateTitle">เข้าสู่ระบบแดชบอร์ด</h2>'
+        + '<p>ใส่รหัสผ่านของทีม — รหัสพนักงานจะเห็นยอดขายแต่ชื่อ/เบอร์ลูกค้าถูกปิด • รหัสผู้ดูแลเห็นข้อมูลจริง</p>'
+        + '<input type="text" name="username" value="hylme" autocomplete="username" hidden>'
+        + '<input type="password" class="hv-pw" autocomplete="current-password" placeholder="รหัสผ่าน" aria-label="รหัสผ่าน" required>'
+        + '<label class="hv-rem"><input type="checkbox" class="hv-remember"> จำไว้ในเครื่องนี้ (ห้ามติ๊กบนเครื่องสาธารณะ)</label>'
+        + '<div class="hv-row"><button type="submit" class="btn primary hv-go">เข้าสู่ระบบ</button></div>'
+        + '<div class="hv-err" role="status" aria-live="polite"></div></form>';
+      document.body.appendChild(ov);
+      const form = ov.querySelector('form'), pw = ov.querySelector('.hv-pw'), go = ov.querySelector('.hv-go'), err = ov.querySelector('.hv-err');
+      if(errMsg) err.textContent = errMsg;
+      form.addEventListener('submit', async e => {
+        e.preventDefault();
+        err.textContent = ''; go.disabled = true; go.textContent = 'กำลังตรวจรหัส…';
+        try{
+          const meta = await api('/meta');
+          if(!meta.ready) throw Object.assign(new Error('ระบบยังไม่ได้ตั้งรหัสผ่าน'), {status:503});
+          const [adminKey, viewKey] = await Promise.all([
+            deriveKey(pw.value, b64d(meta.salt), meta.iter),
+            meta.viewer_salt ? deriveKey(pw.value, b64d(meta.viewer_salt), meta.iter) : Promise.resolve(null)]);
+          const tokens = [await authToken(adminKey)];
+          if(viewKey) tokens.push(await authToken(viewKey));
+          const r = await api('/login', {method:'POST', body:{tokens:tokens}});
+          const remember = ov.querySelector('.hv-remember').checked;
+          S.token = tokens[r.index]; S.role = r.role;
+          store.set({tok:S.token, role:S.role}, remember);
+          if(r.role === 'admin'){
+            V.gateKey = adminKey;                          // ปลดล็อกข้อมูลจริงต่อเลยหลังโหลดข้อมูล
+            if(remember){ try{ localStorage.setItem(REMEMBER_KEY, JSON.stringify({salt:meta.salt, iter:meta.iter, k:await rawKey(adminKey)})); }catch(ex){} }
+          }
+        }catch(ex){
+          err.textContent = ex && ex.status === 401 ? 'รหัสผ่านไม่ถูกต้อง' : (ex && ex.message) || 'เข้าสู่ระบบไม่สำเร็จ';
+          go.disabled = false; go.textContent = 'เข้าสู่ระบบ'; pw.select();
+          return;
+        }
+        go.textContent = 'กำลังโหลดข้อมูล…';
+        ov.dataset.done = '1';
+        resolve(true);
+      });
+      pw.focus();
+    });
+  }
+  function closeGate(){ const g = document.getElementById('hvGate'); if(g) g.remove(); gateOff(); }
+  function logout(){
+    store.clear();
+    try{ localStorage.removeItem(REMEMBER_KEY); }catch(e){}
+    location.reload();
+  }
+  // ผู้ดูแลตั้ง / เปลี่ยนรหัสพนักงาน (ปุ่มหลังบ้าน)
+  async function setViewerPassword(){
+    if(!apiBase()) return;
+    if(!V.key){ notice('ต้องปลดล็อกก่อน', 'ตั้งรหัสพนักงานได้เฉพาะตอนเข้าด้วยรหัสผู้ดูแล'); return; }
+    const v = await dialog({title:'ตั้งรหัสพนักงาน', okText:'บันทึกรหัส',
+      message:'รหัสนี้ใช้เข้าแดชบอร์ด — เห็นยอดขายทั้งหมด แต่ชื่อ/เบอร์/ที่อยู่ลูกค้าถูกปิด และดาวน์โหลด/เข้าหลังบ้านไม่ได้\n\nเปลี่ยนรหัสแล้ว ทุกคนที่ใช้รหัสพนักงานเดิมจะต้อง login ใหม่',
+      fields:[{name:'a', label:'รหัสพนักงานใหม่ (อย่างน้อย 8 ตัวอักษร)', type:'password'}, {name:'b', label:'ยืนยันรหัสอีกครั้ง', type:'password'}]});
+    if(!v) return;
+    if(v.a.length < 8){ notice('ยังไม่ได้ตั้งรหัส', 'รหัสพนักงานต้องยาวอย่างน้อย 8 ตัวอักษร'); return; }
+    if(v.a !== v.b){ notice('ยังไม่ได้ตั้งรหัส', 'รหัสสองช่องไม่ตรงกัน'); return; }
+    try{
+      const env = fullEnv();
+      if(await rawKey(await deriveKey(v.a, b64d(env.salt), env.iter)) === await rawKey(V.key)){
+        notice('ยังไม่ได้ตั้งรหัส', 'รหัสพนักงานต้องไม่ซ้ำกับรหัสผู้ดูแล'); return;
+      }
+      const salt = b64e(crypto.getRandomValues(new Uint8Array(16)));
+      const tok = await authToken(await deriveKey(v.a, b64d(salt), env.iter));
+      await api('/viewer', {method:'POST', key:V.key, body:{viewer_salt:salt, viewer_verifier:await sha256hexStr(tok)}});
+      notice('ตั้งรหัสพนักงานแล้ว ✅', 'ส่งรหัสนี้ให้ทีมได้เลย — ใช้ที่หน้าเข้าสู่ระบบ');
+    }catch(e){ notice('ตั้งรหัสไม่สำเร็จ ❌', e.message); }
+  }
+
   async function api(path, opt){
     opt = opt || {};
     const headers = {};
     if(opt.key) headers.Authorization = 'Bearer ' + await authToken(opt.key);
+    else if(opt.session && S.token) headers.Authorization = 'Bearer ' + S.token;
     if(opt.body !== undefined) headers['Content-Type'] = 'application/json';
     let r;
     try{
@@ -338,9 +453,20 @@
   async function gunzipJSON(b64){ return JSON.parse(new TextDecoder().decode(await pipe(b64d(b64), new DecompressionStream('gzip')))); }
   // เปิดเว็บ: ข้อมูลที่ปิดชื่อ/เบอร์แล้ว (ไม่ต้องใช้รหัส)
   async function loadFromApi(){
-    if(!apiBase()) return false;
+    if(!apiBase()){ gateOff(); return false; }
+    await ensureLogin(false);
     try{
-      const j = await api('/public');
+      let j;
+      for(let tries = 0; ; tries++){
+        try{ j = await api('/public', {session:true}); break; }
+        catch(e){
+          if((e.status !== 401 && e.status !== 403) || tries >= 5) throw e;
+          // token หมดอายุ (เปลี่ยนรหัสแล้ว) / รหัสผิด -> ล้างแล้วให้ login ใหม่
+          store.clear(); try{ localStorage.removeItem(REMEMBER_KEY); }catch(e2){}
+          V.gateKey = null;
+          await showGate(document.getElementById('hvGate') ? 'รหัสผ่านไม่ถูกต้อง' : 'กรุณาเข้าสู่ระบบอีกครั้ง (รหัสเปลี่ยนแล้ว หรือหมดอายุ)');
+        }
+      }
       const pub = await gunzipJSON(j.public_gz);
       if(!pub || !Array.isArray(pub.files) || !pub.files.length) return false;
       uploadedFiles = pub.files;
@@ -351,8 +477,10 @@
       if(Array.isArray(pub.ads) && typeof adsMerge === 'function') adsRecords = adsMerge(adsRecords, pub.ads.filter(adsValid));
       if(Array.isArray(pub.productAds) && typeof prodAdsMerge === 'function') productAdsRecords = prodAdsMerge(productAdsRecords, pub.productAds.filter(prodAdsValid));
       V.snapshot = {id:j.id, created_at:j.created_at};
+      closeGate();
       return true;
     }catch(e){
+      closeGate();
       console.warn('โหลดข้อมูลจาก database ไม่ได้:', e.message);
       notice('โหลดข้อมูลไม่ได้', (e.status === 404 ? 'ยังไม่มีข้อมูลใน database' : 'ดึงข้อมูลจาก database ไม่สำเร็จ: ' + e.message) + '\n\nลอง refresh อีกครั้ง');
       return false;
@@ -380,6 +508,10 @@
   // เปิดเว็บด้วยกุญแจที่ "จำไว้ในเครื่องนี้" — เรียกก่อน render ครั้งแรก
   async function autoUnlock(){
     if(!isPublic()) return false;
+    if(V.gateKey){                                      // เพิ่ง login ด้วยรหัสผู้ดูแลที่หน้าเข้าสู่ระบบ
+      const k = V.gateKey; V.gateKey = null;
+      try{ await applyUnlock(k); refreshUI(); return true; }catch(e){ console.warn('ปลดล็อกข้อมูลจริงไม่ได้:', e.message); }
+    }
     const env = fullEnv();
     let saved = null;
     try{ saved = JSON.parse(localStorage.getItem(REMEMBER_KEY) || 'null'); }catch(e){}
@@ -458,6 +590,7 @@
       const p = document.getElementById('btnPublish');
       if(p){ if(!p.disabled) p.textContent = '⬆ บันทึกลง Database'; p.title = 'บันทึกข้อมูลชุดนี้ลง database (ปิดชื่อ/เบอร์ + เข้ารหัสข้อมูลจริง) ทุกคนเห็นทันที'; }
       ['btnGhSetup', 'btnBake'].forEach(id => { const b = document.getElementById(id); if(b) b.style.display = 'none'; });
+      ['btnLogout', 'btnViewerPw'].forEach(id => { const b = document.getElementById(id); if(b) b.hidden = false; });
     }
     const badge = document.getElementById('hvBadge');
     if(badge) badge.hidden = !isLocked();
@@ -472,8 +605,10 @@
   /* ---------- ด่าน: หลังบ้าน + ดาวน์โหลดทุกช่องทาง ต้องปลดล็อกก่อน ---------- */
   if(typeof document !== 'undefined' && document.addEventListener){
     document.addEventListener('click', e => {
-      const t = e.target && e.target.closest && e.target.closest('#btnLock, #btnGotoBackend, #backendToggle');
+      const t = e.target && e.target.closest && e.target.closest('#btnLock, #btnGotoBackend, #backendToggle, #btnLogout, #btnViewerPw');
       if(!t) return;
+      if(t.id === 'btnLogout'){ e.preventDefault(); logout(); return; }
+      if(t.id === 'btnViewerPw'){ e.preventDefault(); if(isLocked()) promptUnlock('ตั้งรหัสพนักงานได้เฉพาะผู้ดูแล — ใส่รหัสผู้ดูแลก่อน').then(ok => { if(ok) setViewerPassword(); }); else setViewerPassword(); return; }
       if(t.id === 'btnLock'){ e.preventDefault(); if(isLocked()) promptUnlock(); else if(isPublic()) lock(); return; }
       if(!isLocked()) return;
       e.preventDefault(); e.stopImmediatePropagation();
@@ -666,7 +801,7 @@
     dialog:dialog, notice:notice,
     setDataFileEnc:env => { V.dataFileEnc = env || null; },
     buildDataJson:buildDataJson, buildBakeParts:buildBakeParts, fillSlots:fillSlots, publicFiles:publicFiles,
-    apiMode:() => !!apiBase(), loadFromApi:loadFromApi, publishFromPage:publishFromPage,
+    apiMode:() => !!apiBase(), loadFromApi:loadFromApi, publishFromPage:publishFromPage, logout:logout, setViewerPassword:setViewerPassword,
     // ใช้โดย tools/build.mjs และชุดทดสอบ
     _build:{deriveKey:deriveKey, encryptJSON:encryptJSON, decryptEnv:decryptEnv, maskData:maskData, makeMasker:makeMasker,
       macKeyFor:macKeyFor, sha256:sha256, hmacFactory:hmacFactory, packFiles:packFiles, ITER:ITER,
@@ -3251,6 +3386,9 @@ body.page-compare #sideOpenCal, body.page-compare #teamSide .side-picklist{ disp
         <button type="button" class="btn" id="btnLock" title="ปลดล็อกข้อมูลจริง (ใส่รหัส)" aria-label="ปลดล็อกข้อมูลจริง (ใส่รหัส)" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
         </button>
+        <button type="button" class="btn" id="btnLogout" title="ออกจากระบบ" aria-label="ออกจากระบบ" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"></path><path d="M10 17l-5-5 5-5"></path><path d="M5 12h11"></path></svg>
+        </button>
         <button type="button" class="btn" id="btnTheme" title="เปลี่ยนเป็นโหมดมืด" aria-label="เปลี่ยนเป็นโหมดมืด">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 15.4A8.5 8.5 0 0 1 8.6 3.8 8.6 8.6 0 1 0 20.2 15.4Z"></path></svg>
         </button>
@@ -3808,6 +3946,7 @@ body.page-compare #sideOpenCal, body.page-compare #teamSide .side-picklist{ disp
       <button class="btn" id="btnGhSetup" title="ตั้งค่า repo / branch / token ของ GitHub (เก็บในเบราว์เซอร์เครื่องนี้เท่านั้น)">⚙ ตั้งค่า GitHub</button>
       <button class="btn" id="btnBake" title="สร้างไฟล์ index.html ที่มีข้อมูลชุดนี้ฝังอยู่ในตัว สำหรับอัปขึ้น Netlify ให้ทีมเปิดดูได้โดยไม่ต้องอัปโหลด (ข้อมูลลูกค้าจะฝังในไฟล์)">สร้างไฟล์เว็บ (ฝังข้อมูล)</button>
       <button class="btn" id="btnScanCancelBackend" title="อ่านไฟล์ export จาก MyCloud เพื่อหาออเดอร์ที่ถูกยกเลิก/ตีกลับ/คืนของ แล้วหักออกจากยอดในแดชบอร์ด (ไม่นำเข้าออเดอร์ใหม่)">🚫 ตรวจออเดอร์ยกเลิก</button>
+      <button class="btn" id="btnViewerPw" title="ตั้ง / เปลี่ยนรหัสที่พนักงานใช้เข้าแดชบอร์ด (เห็นยอดขาย แต่ชื่อ/เบอร์ลูกค้าถูกปิด)" hidden>🔑 ตั้งรหัสพนักงาน</button>
       <button class="btn" id="btnReset">เริ่มใหม่</button>
     </div>
     <!-- การ์ด "ออเดอร์ที่ถูกยกเลิก" ถูกย้ายมาวางตรงนี้ตอนโหลดหน้า (ดู setupBackendPanel) -->
