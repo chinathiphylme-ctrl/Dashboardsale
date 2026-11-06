@@ -3999,6 +3999,13 @@ body.page-compare #sideOpenCal, body.page-compare #teamSide .side-picklist{ disp
       <button class="btn" id="btnReset">เริ่มใหม่</button>
     </div>
     <!-- การ์ด "ออเดอร์ที่ถูกยกเลิก" ถูกย้ายมาวางตรงนี้ตอนโหลดหน้า (ดู setupBackendPanel) -->
+    <!-- ตรวจส่งเกิน / ส่งขาด: ไฟล์ MyCloud (outbound-orders-expand) เทียบกับออเดอร์ในแดชบอร์ด — 6 พ.ย. 69 -->
+    <section class="card" id="scCard" style="margin-bottom:14px;">
+      <div class="card-head"><div><h3>📦 ตรวจส่งเกิน / ส่งขาด (MyCloud)</h3>
+        <div class="card-sub">อัปไฟล์ export ออเดอร์จาก MyCloud ย้อนหลัง ~30 วัน ทุกวัน → เทียบทีละออเดอร์ ทีละ SKU กับที่ลูกค้าสั่ง (รวมของแถม) · ยังไม่ส่งเกิน 2 วัน / ยกเลิกแล้วยังส่ง / ส่งซ้ำ / ใบแทน</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="scUpload">⬆ อัปไฟล์ MyCloud</button><button class="btn" id="scExport" hidden>⬇ Export รายการที่ต้องตรวจ</button><input type="file" id="scFile" accept=".xlsx,.xls" hidden></div></div>
+      <div id="scBody" class="cxl-muted">ยังไม่ได้อัปไฟล์ — ใช้ไฟล์ "excel-order-list-expand-report-…xlsx" (ชีต outbound-orders-expand)</div>
+    </section>
     <!-- Excel imports create a review queue; review CSV imports apply explicit decisions. -->
     <section class="card cxl-card" id="cxlCard" style="margin-bottom:14px;">
       <div class="card-head"><div><h3>🧾 ค้นหาและยกเลิกออเดอร์</h3>
@@ -13348,11 +13355,191 @@ function renderAll(){
 /* การ์ดในแผง "จัดการข้อมูล (หลังบ้าน)" — ส่วนใหญ่ไม่มีใครเปิดดู จึงไม่วาดทุกครั้งที่เปลี่ยนวัน/ทีม
    ถ้าแผงปิดอยู่จะตั้งธงไว้ แล้ววาดทีเดียวตอนกดเปิดแผง (ดู setupBackendPanel) */
 var backendDirty = true;
+// ==================== ตรวจส่งเกิน / ส่งขาด (MyCloud เทียบกับออเดอร์) — owner 6 พ.ย. 69 ====================
+/* กติกาที่เจ้าของตกลง: ของแถมนับเป็นของที่ต้องส่ง · ใบแทน/ส่งใหม่ไม่นับเป็นส่งเกิน แต่ติดป้ายให้ดู · ออเดอร์ยกเลิกแล้วยังส่ง = เตือน
+   · ยังไม่ส่งเกิน 2 วัน = เตือน (ออเดอร์นัดส่งตามวันในหมายเหตุภายใน นับจากวันนัด) · พรีออเดอร์ (HM-MNS-05 / HM-GB-01) = รอของ ไม่ใช่ปัญหา
+   ไม่ตรวจออเดอร์มาร์เก็ตเพลส (Shopee / TikTok / Lazada) — ยอดฝั่งแดชบอร์ดอ่านมาจาก MyCloud เองอยู่แล้ว
+   ผลอยู่ในเครื่องนี้เท่านั้น (ไม่บันทึกลง database) — อัปไฟล์ใหม่ทุกวัน */
+let scFile = null, scFilter = '';
+const SC_WAIT_DAYS = 2;
+const SC_CATS = [
+  ['over', 'ส่งเกิน', 'var(--critical)'], ['under', 'ส่งขาด', 'var(--critical)'], ['mismatch', 'ส่งไม่ตรง (สินค้าต่างกัน)', 'var(--critical)'],
+  ['cancelShipped', 'ยกเลิกแล้วแต่ส่งของ', 'var(--critical)'], ['notShipped', 'ยังไม่ส่ง (เกิน ' + SC_WAIT_DAYS + ' วัน)', 'var(--warning)'],
+  ['dup', 'ส่งหลายรอบ (ตรวจดู)', 'var(--warning)'], ['noOrder', 'ส่งแต่ไม่พบออเดอร์', 'var(--warning)'],
+  ['scheduled', 'รอส่งตามนัด', 'var(--text-muted)'], ['preorder', 'พรีออเดอร์ รอของ', 'var(--text-muted)'],
+  ['returned', 'ยกเลิกเพราะตีคืน (ส่งแล้ว ของกลับ)', 'var(--text-muted)'], ['ok', 'ส่งตรง', 'var(--good)'] ];
+// เหตุผลยกเลิกที่แปลว่า "ส่งไปแล้ว แต่ของตีกลับ" — ไม่ใช่การส่งของที่ไม่ควรส่ง
+const SC_RETURN_CANCEL_RE = /ตีคืน|ตีกลับ|ส่งไม่สำเร็จ|ปฏิเสธ|ส่งคืน|return/i;
+const SC_PROBLEM = new Set(['over', 'under', 'mismatch', 'cancelShipped', 'notShipped', 'dup', 'noOrder']);
+function scParse(wb, fileName){
+  const sn = mcFindSheet(wb);
+  if(!sn) throw new Error('ไม่พบชีต "outbound-orders" — ต้องเป็นไฟล์ export จาก MyCloud');
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval:null });
+  const byMc = new Map(), mkp = new Set();
+  rows.forEach(r => {
+    const mcNo = mcNorm(r['Order No']); if(!mcNo) return;
+    if(MKP_CHANNEL_RE.test(mcNorm(r['Shop Sale Channel Name']))){ mkp.add(mcNo); return; }
+    let o = byMc.get(mcNo);
+    if(!o){
+      const st = [r['Order Status'], r['MKP Order Status'], r['Shipment Status']].map(mcNorm);
+      o = { mcNo, shopNo:mcPick(r['Shop Order No']).toUpperCase(), date:bizDateStr(mcDateTime(r['Created At'])) || '',
+            status:st.filter(x => x && !/^n\/?a$/i.test(x)).join(' / '), cancelled:st.some(x => MC_CANCEL_RE.test(x)),
+            shipped:mcDateTime(r['Shipped At']).slice(0, 10), delivered:mcDateTime(r['Delivered At']).slice(0, 10),
+            done:!!mcDateTime(r['Delivered At']) || st.some(x => /delivered|complete/i.test(x)), items:new Map(), names:{} };
+      byMc.set(mcNo, o);
+    }
+    const sku = (mcPick(r['Shop SKU']) || mcPick(r['MyCloud SKU'])).toUpperCase();
+    if(sku){ o.items.set(sku, (o.items.get(sku) || 0) + mcmNum(r['Product Quantity'])); o.names[sku] = mcNorm(r['Product Name']); }
+  });
+  const dates = [...byMc.values()].map(o => o.date).filter(Boolean).sort();
+  if(!byMc.size && !mkp.size) throw new Error('ไม่พบออเดอร์ในไฟล์');
+  // ช่วงที่ไฟล์ "มีออเดอร์ครบ": export ย้อนหลัง 30 วันยังพาออเดอร์เก่าที่เพิ่งอัปเดตติดมาวันละ 1–2 รายการ (เช่น ส.ค.)
+  // -> เริ่มนับจากวันแรกที่มีออเดอร์อย่างน้อย 1/4 ของค่ากลางต่อวัน ก่อนหน้านั้นไม่ตรวจ "ยังไม่ส่ง"
+  const perDay = {}; dates.forEach(d => { perDay[d] = (perDay[d] || 0) + 1; });
+  const counts = Object.values(perDay).sort((a, b) => a - b), med = counts.length ? counts[Math.floor(counts.length / 2)] : 0;
+  const cover = Object.keys(perDay).sort().find(d => perDay[d] >= Math.max(3, med / 4)) || dates[0] || '';
+  return { name:fileName, at:new Date(), orders:[...byMc.values()], mkp:mkp.size, from:dates[0] || '', to:dates[dates.length - 1] || '', cover };
+}
+// เลขออเดอร์ที่เป็นใบแทน / บิลส่งใหม่ (จากทะเบียนตีคืน: "นับบิลส่งใหม่ PK-xxxx แทน" + บิลส่งใหม่ที่ตรวจแล้ว)
+function scReplacementIds(){
+  const s = new Set();
+  Object.values(typeof RETURN_REVIEW_DECISIONS === 'object' && RETURN_REVIEW_DECISIONS || {}).forEach(d => {
+    if(d && d.replacement) String(d.replacement).split(/[\s,]+/).forEach(x => { if(x) s.add(x.toUpperCase()); });
+    const m = String(d && d.reason || '').match(/บิลส่งใหม่\s+([A-Z]+-?\d+)/i); if(m) s.add(m[1].toUpperCase());
+  });
+  (Array.isArray(RETURN_REVIEW_ADDITIONS) ? RETURN_REVIEW_ADDITIONS : []).forEach(f => (f.leadsRows || []).forEach(l => s.add(String(l['Lead ID']).toUpperCase())));
+  return s;
+}
+const scItemsTxt = (m, names) => [...m.entries()].map(([k, q]) => `${names && names[k] ? shortProductName(names[k]) : k} ×${fmtNum(q)}`).join(', ') || '—';
+function scCompare(){
+  if(!scFile || !DATA) return null;
+  const leads = DATA.transactionLeads || DATA.allLeads || [], prods = DATA.transactionProducts || DATA.allProducts || [];
+  const leadBy = new Map(); leads.forEach(l => leadBy.set(String(l['Lead ID']).toUpperCase(), l));
+  const itemsBy = new Map(), namesBy = new Map(), prodsBy = new Map();
+  prods.forEach(p => {
+    const id = String(p['Lead ID']).toUpperCase(); (prodsBy.get(id) || prodsBy.set(id, []).get(id)).push(p);
+    const sku = String(p['Product Code'] || '').trim().toUpperCase(); if(!sku) return;
+    const m = itemsBy.get(id) || itemsBy.set(id, new Map()).get(id); m.set(sku, (m.get(sku) || 0) + (Number(p['Quantity']) || 0));
+    (namesBy.get(id) || namesBy.set(id, {}).get(id))[sku] = p['Product Name'];
+  });
+  const repl = scReplacementIds();
+  const dataFrom = leads.reduce((a, l) => (l.__date && (!a || l.__date < a)) ? l.__date : a, '');
+  const dataTo = leads.reduce((a, l) => (l.__date && l.__date > a) ? l.__date : a, '');
+  scFile.dataTo = dataTo;
+  const today = ymd(new Date()), waitTo = ymd(new Date(Date.now() - SC_WAIT_DAYS * 864e5));
+  const out = [], ship = new Map();
+  scFile.orders.forEach(o => { if(!o.cancelled && o.shopNo) (ship.get(o.shopNo) || ship.set(o.shopNo, []).get(o.shopNo)).push(o); });
+  const isMkpLead = l => /MyCloud/i.test(String(l['Source'] || '')) || MKP_CHANNEL_RE.test(String(l['Lead Intro'] || ''));
+  const row = (cat, id, l, list, detail) => out.push({ cat, id, lead:l, ships:list || [], detail:detail || '', repl:repl.has(id),
+    ordered:itemsBy.get(id) || new Map(), names:namesBy.get(id) || {} });
+  ship.forEach((list, id) => {
+    const l = leadBy.get(id);
+    if(!l){ if(list[0].date && dataFrom && list[0].date >= dataFrom && list[0].date <= dataTo) row('noOrder', id, null, list, 'เลขออเดอร์นี้ไม่มีในแดชบอร์ด — คีย์ผิดเลข หรือยังไม่ได้อัปไฟล์ออเดอร์วันนั้น'); return; }
+    if(isMkpLead(l)) return;
+    if(l.__cancelled){
+      const why = String(l.__cancelled.reason || l.__cancelled.status || '').replace(/\s+/g, ' ').trim();
+      if(SC_RETURN_CANCEL_RE.test(why)) row('returned', id, l, list, 'ยกเลิกเพราะตีคืน — ' + why.slice(0, 120));
+      else row('cancelShipped', id, l, list, 'ออเดอร์ถูกยกเลิกในแดชบอร์ด แต่ MyCloud ส่งของแล้ว' + (why ? ' · เหตุผลที่ยกเลิก: ' + why.slice(0, 120) : ''));
+      return; }
+    if(list.length > 1){
+      const fmtD = s => s ? fmtDMY(new Date(s + 'T00:00:00')) : '—';
+      const each = list.slice().sort((a, b) => a.date.localeCompare(b.date)).map((x, i) => `รอบ ${i + 1}: ${x.mcNo} คีย์ ${fmtD(x.date)} ${x.done ? 'ส่งถึงแล้ว' + (x.delivered ? ' ' + fmtD(x.delivered) : '') : x.shipped ? 'ส่งออกแล้ว' : (x.status || 'ยังไม่ส่ง')}`).join(' · ');
+      row('dup', id, l, list, `ออเดอร์เดียวถูกคีย์เข้า MyCloud ${list.length} ครั้ง — ${each}` + (repl.has(id) ? ' (เป็นใบแทน/ส่งใหม่ — ตรวจว่าตั้งใจส่งซ้ำ)' : ' — ถ้าไม่ใช่การส่งใหม่หลังตีคืน = ส่งเกิน'));
+      return; }
+    const want = itemsBy.get(id) || new Map(), got = list[0].items, diffs = [];
+    new Set([...want.keys(), ...got.keys()]).forEach(k => { const d = (got.get(k) || 0) - (want.get(k) || 0); if(d) diffs.push([k, want.get(k) || 0, got.get(k) || 0, d]); });
+    const cat = !diffs.length ? 'ok' : diffs.every(x => x[3] > 0) ? 'over' : diffs.every(x => x[3] < 0) ? 'under' : 'mismatch';
+    row(cat, id, l, list, diffs.map(([k, w, g, d]) => `${(namesBy.get(id) || {})[k] ? shortProductName(namesBy.get(id)[k]) : (list[0].names[k] ? shortProductName(list[0].names[k]) : k)}: สั่ง ${fmtNum(w)} ส่ง ${fmtNum(g)} (${d > 0 ? '+' : ''}${fmtNum(d)})`).join(' · '));
+  });
+  // ออเดอร์ในช่วงของไฟล์ที่ยังไม่อยู่ใน MyCloud
+  // ช่วงที่ไฟล์ครอบคลุมจริง: MyCloud export ตาม "วันที่อัปเดต" — ออเดอร์ปลาย ก.ย. ที่ส่งถึงก่อนช่วง export จะไม่อยู่ในไฟล์
+  // -> ไล่ย้อนจากวันล่าสุด หยุดที่วันแรกที่ MyCloud มีออเดอร์ไม่ถึง 90% ของในแดชบอร์ด (ก่อนหน้านั้นไม่ตรวจ "ยังไม่ส่ง")
+  //    ไฟล์จริง 6 พ.ย.: ตั้งแต่ 6 ต.ค. ครบ 97–100% ทุกวัน · 1–5 ต.ค. มีแค่ 64–78% (ถูกตัดตามวันอัปเดต)
+  const dayAll = {}, dayHit = {};
+  leads.forEach(l => {
+    const id = String(l['Lead ID']).toUpperCase();
+    if(l.__cancelled || isMkpLead(l) || !l.__date || !itemsBy.has(id) || l.__date < (scFile.cover || scFile.from)) return;
+    dayAll[l.__date] = (dayAll[l.__date] || 0) + 1; if(ship.has(id)) dayHit[l.__date] = (dayHit[l.__date] || 0) + 1;
+  });
+  let cover = scFile.cover || scFile.from;
+  const checkDays = Object.keys(dayAll).filter(d => d <= waitTo).sort().reverse();
+  for(const d of checkDays){ if(dayAll[d] >= 5 && (dayHit[d] || 0) / dayAll[d] < 0.9){ cover = ymd(new Date(new Date(d + 'T00:00:00').getTime() + 864e5)); break; } }
+  scFile.coverUsed = cover;
+  if(cover) leads.forEach(l => {
+    const id = String(l['Lead ID']).toUpperCase();
+    if(ship.has(id) || l.__cancelled || isMkpLead(l) || !l.__date || l.__date < cover || l.__date > today) return;
+    if(!itemsBy.has(id)) return;                                                   // ไม่มี SKU = export เข้า MC ไม่ได้ตั้งแต่แรก
+    const ps = prodsBy.get(id) || [];
+    if(ps.some(p => typeof isPreorderItem === 'function' && isPreorderItem(p))){ row('preorder', id, l, [], 'มีสินค้าพรีออเดอร์ — รอของเข้า'); return; }
+    const hold = mcShipHoldDate(String(l['Internal Notes'] || ''), new Date(l.__date + 'T00:00:00'));
+    if(hold){ const due = ymd(new Date(hold.date.getTime() + SC_WAIT_DAYS * 864e5));
+      if(due > today){ row('scheduled', id, l, [], 'นัดส่ง ' + hold.label); return; }
+      row('notShipped', id, l, [], `นัดส่ง ${hold.label} — เลยมาแล้วยังไม่อยู่ใน MyCloud`); return; }
+    if(l.__date > waitTo) return;                                                   // คีย์ไม่ถึง 2 วัน = ปกติ
+    row('notShipped', id, l, [], `สั่งวันที่ ${fmtDMY(new Date(l.__date + 'T00:00:00'))} ยังไม่อยู่ในไฟล์ MyCloud`);
+  });
+  const rank = Object.fromEntries(SC_CATS.map((c, i) => [c[0], i]));
+  out.sort((a, b) => rank[a.cat] - rank[b.cat] || String((b.lead || {}).__date || (b.ships[0] || {}).date || '').localeCompare(String((a.lead || {}).__date || (a.ships[0] || {}).date || '')));
+  return out;
+}
+function renderShipCheck(){
+  const body = document.getElementById('scBody'); if(!body) return;
+  const exp = document.getElementById('scExport');
+  if(!scFile){ if(exp) exp.hidden = true; return; }
+  const res = scCompare() || [];
+  const cnt = {}; res.forEach(r => { cnt[r.cat] = (cnt[r.cat] || 0) + 1; });
+  const nRepl = res.filter(r => r.repl).length, nProb = res.filter(r => SC_PROBLEM.has(r.cat)).length;
+  if(exp) exp.hidden = !nProb;
+  const list = res.filter(r => scFilter === 'repl' ? r.repl : scFilter === 'problem' ? SC_PROBLEM.has(r.cat) : !scFilter || r.cat === scFilter);
+  const chip = (k, lab, n, color) => `<button class="chip${scFilter === k ? ' active' : ''}" data-scf="${k}"${color ? ` style="border-color:${color}"` : ''}>${lab} ${fmtNum(n)}</button>`;
+  const d = s => s ? fmtDMY(new Date(s + 'T00:00:00')) : '—';
+  const rows = list.slice(0, 300).map(r => {
+    const c = SC_CATS.find(x => x[0] === r.cat), l = r.lead || {};
+    const sh = r.ships.map(s => `<div>${cpEsc(s.mcNo)} · ${cpEsc(scItemsTxt(s.items, s.names))}<small class="rt-sub">${cpEsc(s.status || '-')}${s.done ? ' · ✅ ถึงแล้ว' + (s.delivered ? ' ' + d(s.delivered) : '') : s.shipped ? ' · ส่งออก ' + d(s.shipped) : ''}</small></div>`).join('') || '<span class="cxl-muted">— ไม่อยู่ใน MyCloud —</span>';
+    return `<tr><td><span class="cp-badge" style="background:color-mix(in srgb, ${c[2]} 16%, transparent);color:var(--text-primary)">${cpEsc(c[1])}</span>${r.repl ? '<br><span class="cp-badge new" style="margin-top:4px">ใบแทน / ส่งใหม่</span>' : ''}</td>
+      <td>${cpEsc(r.id)}<small class="rt-sub">${d(l.__date || (r.ships[0] || {}).date)}${l['Current User Name'] ? ' · ' + cpEsc(l['Current User Name']) : ''}</small></td>
+      <td>${cpEsc(l['Lead Name'] || '—')}</td>
+      <td>${cpEsc(scItemsTxt(r.ordered, r.names))}</td><td>${sh}</td><td>${cpEsc(r.detail)}</td></tr>`;
+  }).join('');
+  body.className = '';
+  body.innerHTML = `<div class="cxl-muted" style="margin-bottom:8px">ไฟล์ <b>${cpEsc(scFile.name)}</b> · ${fmtNum(scFile.orders.length)} ออเดอร์ (ไม่นับมาร์เก็ตเพลส ${fmtNum(scFile.mkp)}) · ตรวจ "ยังไม่ส่ง" ตั้งแต่ ${d(scFile.coverUsed || scFile.cover)} (ช่วงที่ไฟล์มีออเดอร์ครบ) ถึง ${d(scFile.to)}
+    · ออเดอร์ในแดชบอร์ดถึง ${d(scFile.dataTo)}${scFile.dataTo && scFile.to > scFile.dataTo ? ' — MyCloud หลังวันนี้ยังเทียบไม่ได้ (อัปไฟล์ออเดอร์ Pancake ให้ถึงล่าสุดก่อน)' : ''}</div>
+    <div class="chips" style="flex-wrap:wrap;margin-bottom:10px">${chip('problem', '⚠️ ต้องตรวจทั้งหมด', nProb)}${SC_CATS.map(c => chip(c[0], c[1], cnt[c[0]] || 0, c[2])).join('')}${chip('repl', 'ใบแทน / ส่งใหม่', nRepl)}${chip('', 'ทั้งหมด', res.length)}</div>
+    <div class="scroll-table"><table class="order-table rt-table"><thead><tr><th>ผล</th><th>ออเดอร์</th><th>ลูกค้า</th><th>ลูกค้าสั่ง</th><th>MyCloud ส่ง</th><th>รายละเอียด</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="6" class="cxl-muted">ไม่มีรายการในกลุ่มนี้ 🎉</td></tr>'}</tbody></table></div>
+    ${list.length > 300 ? `<div class="cxl-muted" style="margin-top:6px">แสดง 300 จาก ${fmtNum(list.length)} รายการ — กด Export เพื่อดูทั้งหมด</div>` : ''}`;
+}
+(function initShipCheck(){
+  const card = document.getElementById('scCard'); if(!card) return;
+  card.addEventListener('click', e => {
+    const t = e.target.closest('button'); if(!t) return;
+    if(t.id === 'scUpload'){ document.getElementById('scFile').click(); return; }
+    if(t.dataset.scf !== undefined){ scFilter = t.dataset.scf; renderShipCheck(); return; }
+    if(t.id === 'scExport'){
+      const res = (scCompare() || []).filter(r => SC_PROBLEM.has(r.cat) || r.repl);
+      const aoa = [['ผล', 'ใบแทน/ส่งใหม่', 'เลขออเดอร์', 'วันที่สั่ง', 'ผู้ดูแล', 'ลูกค้า', 'ลูกค้าสั่ง', 'MyCloud Order No', 'MyCloud ส่ง', 'สถานะ MyCloud', 'ส่งถึง', 'รายละเอียด']];
+      res.forEach(r => { const l = r.lead || {}, s = r.ships;
+        aoa.push([SC_CATS.find(x => x[0] === r.cat)[1], r.repl ? 'ใช่' : '', r.id, l.__date || (s[0] || {}).date || '', l['Current User Name'] || '', l['Lead Name'] || '',
+          scItemsTxt(r.ordered, r.names), s.map(x => x.mcNo).join(', '), s.map(x => scItemsTxt(x.items, x.names)).join(' | '), s.map(x => x.status).join(' | '),
+          s.map(x => x.done ? (x.delivered || 'ถึงแล้ว') : '').filter(Boolean).join(', '), r.detail]); });
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'ตรวจส่ง');
+      XLSX.writeFile(wb, `ตรวจส่งเกิน-ส่งขาด-${ymd(new Date())}.xlsx`);
+    }
+  });
+  document.getElementById('scFile').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = ''; if(!f) return;
+    try{
+      scFile = scParse(XLSX.read(await f.arrayBuffer(), { type:'array', cellDates:true }), f.name);
+      scFilter = 'problem'; renderShipCheck();
+    }catch(err){ const n = window.HylmeVault && HylmeVault.notice; n ? n('อ่านไฟล์ MyCloud ไม่ได้ ❌', err.message) : console.warn(err); }
+  });
+})();
+
 function renderBackendCards(force){
   const body = document.getElementById('backendBody');
   if(!force && body && body.classList.contains('collapsed')){ backendDirty = true; return; }
   backendDirty = false;
-  renderCancelCard(); cxlRender(); renderOrderEditCard(); renderReportCard(); renderMcCard(); renderContactCard(); renderPosCard(); renderRangeExport(); renderPointCard();
+  renderCancelCard(); cxlRender(); renderOrderEditCard(); renderReportCard(); renderMcCard(); renderContactCard(); renderPosCard(); renderRangeExport(); renderPointCard(); renderShipCheck();
 }
 
 // ---- การ์ดสรุปยอดขายส่งทีม: ปุ่มคัดลอก + ช่อง Focus Set (จำค่าไว้ในเบราว์เซอร์เครื่องนี้) ----
