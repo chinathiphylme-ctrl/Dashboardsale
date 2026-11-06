@@ -9867,11 +9867,18 @@ function recomputeDataset(options = {}){
      ออเดอร์จริงซื้อ SKU เดิม 2 บรรทัดได้ (เช่นมาร์เก็ตเพลสแตกบรรทัดต่อชิ้น) ถ้ายุบทิ้งยอดจะหายครึ่ง
      -> นับลำดับการเจอซ้ำ "ภายในไฟล์เดียวกัน" ต่อท้าย key บรรทัดที่ 1/2/3 ของไฟล์เดียวกันจึงอยู่ครบ
         ส่วนไฟล์เดิมที่อัปซ้ำจะได้ลำดับชุดเดิม เลยทับกันพอดีตามเจตนา                              */
+  /* ออเดอร์ Pancake (PK-) ที่อยู่หลายไฟล์ (เช่น Excel เก่า + ไฟล์จาก Pancake API ที่แก้จำนวนแล้ว) — 6 พ.ย. 69:
+     รายการสินค้าต้องมาจาก "ไฟล์ล่าสุดที่มีสินค้าของออเดอร์นั้น" ไฟล์เดียว ไม่อย่างนั้นแถวเก่า (Daily ×4) กับแถวใหม่ (Daily ×3)
+     รอด key ด้านล่างทั้งคู่ (key มีจำนวน/ราคาอยู่ด้วย) · ข้อมูล ณ 6 พ.ย.: มี 3 ออเดอร์ที่อยู่หลายไฟล์ และสินค้าเหมือนกันทุกไฟล์
+     -> ตัวเลขเดิมไม่เปลี่ยน */
+  const pkProdFile = new Map();
+  uploadedFiles.forEach((f, fi) => (f.prodRows||[]).forEach(r => { const id = String(r['Lead ID'] || ''); if(/^PK-/i.test(id)) pkProdFile.set(id, fi); }));
   const prodMap = new Map();
-  uploadedFiles.forEach(f => {
+  uploadedFiles.forEach((f, fi) => {
     const seen = new Map();
     (f.prodRows||[]).forEach(r => {
       if(!leadIds.has(r['Lead ID'])) return;
+      if(pkProdFile.has(String(r['Lead ID'])) && pkProdFile.get(String(r['Lead ID'])) !== fi) return;
       if(isShippingLine(r['Product Name'])) return;
       const base = [r['Lead ID'], r['Quotation Number'], r['Product Code'], r['Quantity'], r['Unit Price'], r['Discount'], r['Value Before VAT']].join('|');
       const nth = (seen.get(base) || 0) + 1;
