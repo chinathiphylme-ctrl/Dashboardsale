@@ -3163,6 +3163,12 @@ body.page-customers #sideOpenCal, body.page-customers #teamSide .side-picklist{ 
 .cp-track i{ display:block; height:100%; border-radius:6px; }
 .cp-row .v{ text-align:right; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .cp-split{ display:flex; height:16px; border-radius:8px; overflow:hidden; gap:2px; }
+.cp-spend-stats{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin:4px 0 18px; }
+.cp-spend-stat{ background:var(--surface-2); border:1px solid var(--grid); border-radius:10px; padding:10px 12px; min-width:0; }
+.cp-spend-stat .lbl{ font-size:11.5px; color:var(--text-secondary); font-weight:600; }
+.cp-spend-stat .val{ font-size:17px; font-weight:800; margin-top:4px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.cp-spend-stat .hint{ font-size:11px; color:var(--text-muted); margin-top:4px; line-height:1.4; }
+@media (max-width:820px){ .cp-spend-stats{ grid-template-columns:1fr 1fr; } }
 .cp-cohort td.heat{ text-align:center; border-radius:5px; }
 .cp-cohort th{ cursor:default; }
 .cp-badge{ display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:999px; white-space:nowrap; }
@@ -14558,6 +14564,27 @@ function cpCompute(scope){
     const b = FREQ.find(x => x.test(n)); if(b){ b.customers++; b.sales += a.sales; }
   });
 
+  // การกระจายยอดซื้อต่อลูกค้า = ยอดรวมของแต่ละคนในช่วงนี้ (รวม VAT • เฉพาะลูกค้าที่ระบุตัวได้ — ชุดเดียวกับการ์ด "ยอดซื้อเฉลี่ยต่อลูกค้า")
+  // ยอดต่อคนจับกลุ่มที่ราคาโปร (~฿300 / 690 / 1,290 / 2,580) ขอบช่วงจึงวางไม่ให้ตัดกลางกลุ่ม
+  const SPEND = [ { name:'ไม่เกิน ฿500', max:500 }, { name:'฿501 – 1,000', max:1000 }, { name:'฿1,001 – 1,500', max:1500 },
+                  { name:'฿1,501 – 2,000', max:2000 }, { name:'฿2,001 – 3,000', max:3000 }, { name:'฿3,001 – 5,000', max:5000 },
+                  { name:'มากกว่า ฿5,000', max:Infinity } ].map(b => ({ ...b, customers:0, sales:0, nNew:0, multi:0 }));
+  const spends = [];
+  cur.act.forEach(a => {
+    spends.push(a.sales);
+    const b = SPEND.find(x => Math.round(a.sales) <= x.max);
+    b.customers++; b.sales += a.sales;
+    if(D.firstDateByKey.get(a.k) >= from) b.nNew++;
+    if(a.orders >= 2) b.multi++;
+  });
+  spends.sort((a, b) => a - b);
+  const sq = p => spends.length ? spends[Math.min(spends.length - 1, Math.floor(p * spends.length))] : 0;
+  const spendTot = spends.reduce((s, v) => s + v, 0);
+  const topN = Math.ceil(spends.length * 0.1);
+  const spendStats = { n:spends.length, mean:spends.length ? spendTot / spends.length : 0, total:spendTot,
+    p25:sq(0.25), p50:sq(0.5), p75:sq(0.75), p90:sq(0.9), max:spends.length ? spends[spends.length - 1] : 0, topN,
+    topShare:cpPct(spends.slice(spends.length - topN).reduce((s, v) => s + v, 0), spendTot) };
+
   // ฐานลูกค้าสะสม ณ วันอ้างอิง (ลูกค้าที่เคยซื้อตามตัวกรองทีม — รวมคนที่ซื้อตั้งแต่ปีก่อน)
   const baseKeys = new Set();
   D.allLeads.forEach(r => { if(r.__date <= ref){ const k = keyOf(r['Lead ID']); if(k) baseKeys.add(k); } });
@@ -14641,7 +14668,7 @@ function cpCompute(scope){
              isNew:D.firstDateByKey.get(a.k) >= from, status:statusOf(ds[ds.length - 1] || ref) };
   });
 
-  return { scope, from, to, ref, lastDate, yearFrom, cur, prev, prevLabel, FREQ, repeaters, baseSize:baseKeys.size,
+  return { scope, from, to, ref, lastDate, yearFrom, cur, prev, prevLabel, FREQ, SPEND, spendStats, repeaters, baseSize:baseKeys.size,
            cycle, HEALTH, GAP, gapMedian:cpMedian(gap2), gapCount:gap2.length, chanList, prodList, monthly, cohorts, maxOff, top };
 }
 
@@ -14656,7 +14683,7 @@ function cpRows(list, opt){
   const max = Math.max(1, ...list.map(opt.val));
   return `<div class="cp-rows">${list.map(x => {
     const v = opt.val(x);
-    return `<div class="cp-row"><div class="nm">${cpEsc(x.name)}${opt.sub ? `<small>${opt.sub(x)}</small>` : ''}</div>
+    return `<div class="cp-row"${opt.tip ? ` title="${cpEsc(opt.tip(x))}"` : ''}><div class="nm">${cpEsc(x.name)}${opt.sub ? `<small>${opt.sub(x)}</small>` : ''}</div>
       <div class="cp-track"><i style="width:${Math.max(v ? 2 : 0, v / max * 100).toFixed(1)}%;background:${opt.color(x)}"></i></div>
       <div class="v">${opt.fmt(x)}</div></div>`;
   }).join('')}</div>`;
@@ -14712,6 +14739,28 @@ function renderCustomerPage(){
   const freqTotal = R.FREQ.reduce((s, b) => s + b.customers, 0);
   const SEQ = ['var(--seq-250)', 'var(--seq-350)', 'var(--seq-450)', 'var(--seq-600)', 'var(--seq-700)'];
 
+  // ---- การกระจายยอดซื้อต่อลูกค้า ----
+  const SS = R.spendStats;
+  const skewTxt = !SS.n ? '' : SS.mean > SS.p50 * 1.15
+    ? `ค่าเฉลี่ย (${fmtBaht(SS.mean)}) สูงกว่าค่ากลาง (${fmtBaht(SS.p50)}) — ลูกค้าส่วนใหญ่ซื้อน้อยกว่าค่าเฉลี่ย มีกลุ่มเล็กที่ซื้อเยอะดึงค่าเฉลี่ยขึ้น`
+    : `ค่าเฉลี่ย (${fmtBaht(SS.mean)}) ใกล้ค่ากลาง (${fmtBaht(SS.p50)}) — ลูกค้าส่วนใหญ่ใช้จ่ายใกล้ ๆ ค่าเฉลี่ย`;
+  const spendStat = (lbl, val, hint) => `<div class="cp-spend-stat"><div class="lbl">${lbl}</div><div class="val">${val}</div>${hint ? `<div class="hint">${hint}</div>` : ''}</div>`;
+  const spendHtml = !SS.n ? '' : `
+    <div class="card" style="margin-bottom:14px;">
+      <div class="card-head"><div><h3>ลูกค้าแต่ละคนใช้จ่ายเท่าไร — การกระจายยอดซื้อต่อลูกค้า</h3><div class="card-sub">ยอดซื้อรวมของแต่ละคนใน${cpEsc(scopeLabel)} (รวม VAT) • ${fmtNum(SS.n)} คนที่ระบุตัวได้ • ${cpEsc(skewTxt)}</div></div></div>
+      <div class="cp-spend-stats">
+        ${spendStat('ค่ากลาง (median)', fmtBaht(SS.p50), 'ครึ่งหนึ่งซื้อไม่เกินนี้')}
+        ${spendStat('ค่าเฉลี่ย', fmtBaht(SS.mean), 'ตรงกับการ์ดด้านบน')}
+        ${spendStat('25% ล่าง / 75% บน', `${fmtBaht(SS.p25)} – ${fmtBaht(SS.p75)}`, 'ลูกค้าครึ่งกลางอยู่ในช่วงนี้')}
+        ${spendStat('10% บนสุด', `≥ ${fmtBaht(SS.p90)}`, `${fmtNum(SS.topN)} คน ทำ ${cpPctTxt(SS.topShare)} ของยอด`)}
+        ${spendStat('สูงสุด', fmtBaht(SS.max), '')}
+      </div>
+      ${cpRows(R.SPEND, { val:x => x.customers, color:() => 'var(--series-1)',
+        sub:x => `ยอดรวม ${fmtBaht(x.sales)} • ${cpPctTxt(cpPct(x.sales, SS.total))} ของยอดขาย`,
+        tip:x => `${x.name}: ${fmtNum(x.customers)} คน (${cpPctTxt(cpPct(x.customers, SS.n))}) • ยอดรวม ${fmtBaht(x.sales)} • ลูกค้าใหม่ ${fmtNum(x.nNew)} คน • ซื้อ 2 ออเดอร์ขึ้นไปในช่วงนี้ ${fmtNum(x.multi)} คน`,
+        fmt:x => `${fmtNum(x.customers)} คน<small>${cpPctTxt(cpPct(x.customers, SS.n))} ของลูกค้า</small>` })}
+    </div>`;
+
   host.innerHTML = `
     <div class="cp-filters">
       <div class="chips period-scroll cp-chips">${chips}</div>
@@ -14732,6 +14781,7 @@ function renderCustomerPage(){
       <div class="kpi-tile"><div class="lbl">% ยอดขายจากลูกค้าเก่า</div><div class="val">${cpPctTxt(cpPct(C.sRet, idSales))}</div><div class="hint">${fmtBaht(C.sRet)} จาก ${fmtBaht(idSales)}</div></div>
       <div class="kpi-tile"><div class="lbl">ฐานลูกค้าสะสม</div><div class="val">${fmtNum(R.baseSize)} คน</div><div class="hint">ณ ${fmtDMY(cpDay(R.ref))} — นับรวมลูกค้าที่ซื้อตั้งแต่ปีก่อน</div></div>
     </div>
+    ${spendHtml}
 
     <div class="premium-section-head"><span class="ps-num">02</span><div class="ps-copy"><div class="ps-title">Acquisition &amp; Retention</div><div class="ps-sub">ลูกค้าใหม่เข้ามาเท่าไร และลูกค้าเก่ากลับมาซื้อแค่ไหน</div></div></div>
     <div class="card" style="margin-bottom:14px;">
