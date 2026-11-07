@@ -18,6 +18,8 @@
 //   GET  /full[?id=]        ข้อมูลจริงที่เข้ารหัส                         (token ผู้ดูแล)
 //   GET  /snapshots         รายการ 20 รอบล่าสุด                         (token ผู้ดูแล)
 //   POST /publish           บันทึกรอบใหม่                               (token ผู้ดูแล)
+//                           ก้อนใหญ่: POST /publish-part {upload_id, field: public_gz|full_ct, part, data} ทีละชิ้น (≤ 4 MB)
+//                           แล้ว POST /publish {parts:{upload_id, public, full}, full_enc: (ไม่มี ct), …} — คำขอเดียวเกิน 10 MB ไม่ได้
 //   POST /viewer            ตั้ง/เปลี่ยนรหัสพนักงาน {viewer_salt, viewer_verifier}   (token ผู้ดูแล)
 //   GET  /return-notes      เหตุผลตีคืนที่ทีมใส่ {mc: {cat, note, by, at}}           (token พนักงาน หรือ ผู้ดูแล)
 //   POST /return-notes      ใส่/แก้เหตุผลตีคืน 1 ออเดอร์ {mc, cat, note, by} — cat+note ว่าง = ลบ   (token พนักงาน หรือ ผู้ดูแล)
@@ -29,6 +31,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 
 const KEEP = 20;
 const MAX_BODY = 40 * 1024 * 1024;
+const PART_MAX = 6 * 1024 * 1024;   // ชิ้นละไม่เกินนี้ (หน้าเว็บส่งชิ้นละ 4 MB) — คำขอทั้งก้อนต้องไม่เกิน 10 MB ของ Neon Functions
 const MAX_FAILS_IP = 20;         // รหัสผิดเกินนี้ใน 15 นาทีจาก IP เดียว -> ปฏิเสธ IP นั้นจนกว่าจะพ้นช่วง
 const MAX_FAILS_ALL = 300;       // รวมทุก IP (กันการไล่เดารหัสจากหลายเครื่อง)
 
@@ -195,14 +198,53 @@ async function route(req) {
     const rows = await sql(`SELECT ${META}, public_sha256 FROM snapshots ORDER BY id DESC LIMIT ${KEEP}`);
     return json({ ok: true, snapshots: rows.map((r) => ({ ...meta(r), public_sha256: r.public_sha256 })) });
   }
+  // ส่งเป็นชิ้น (7 พ.ย. 69): Neon Functions รับคำขอได้ไม่เกิน 10 MB (เกิน = 413 ก่อนถึงโค้ดนี้ เบราว์เซอร์เห็นเป็น "ติดต่อไม่ได้")
+  // รอบข้อมูลโตถึง 9.9 MB แล้ว -> หน้าเว็บ / ตัวอัปเดตอัตโนมัติส่ง public_gz และ full_enc.ct เป็นชิ้นละ ≤ 4 MB มาก่อน
+  // แล้ว POST /publish ด้วย parts:{upload_id, public, full} — database ประกอบชิ้นเองใน SQL (ไม่ส่งก้อนใหญ่กลับไปมา)
+  if (method === 'POST' && path === '/publish-part') {
+    const a = await authorize(req, 'publish-part', vault); if (a.error) return a.error;
+    const b = await readJson(req);
+    if (typeof b.upload_id !== 'string' || !/^[a-z0-9-]{8,64}$/.test(b.upload_id)) return fail(400, 'upload_id ไม่ถูกต้อง');
+    if (!['public_gz', 'full_ct'].includes(b.field)) return fail(400, 'field ไม่ถูกต้อง');
+    if (!Number.isInteger(b.part) || b.part < 0 || b.part > 199) return fail(400, 'part ไม่ถูกต้อง');
+    if (typeof b.data !== 'string' || !b.data.length || b.data.length > PART_MAX || !B64.test(b.data)) return fail(400, 'data ไม่ถูกต้อง');
+    await sql(`INSERT INTO publish_parts (upload_id, field, part, data) VALUES ($1, $2, $3, $4)
+               ON CONFLICT (upload_id, field, part) DO UPDATE SET data = EXCLUDED.data, created_at = now()`, [b.upload_id, b.field, b.part, b.data]);
+    return json({ ok: true, part: b.part });
+  }
   if (method === 'POST' && path === '/publish') {
     const a = await authorize(req, 'publish', vault); if (a.error) return a.error;
     const b = await readJson(req);
+    const source = ['dashboard', 'build', 'migrate'].includes(b.source) ? b.source : 'dashboard';
+    const int = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+    const note = typeof b.note === 'string' ? b.note.slice(0, 500) : null;
+    if (b.parts) {
+      const p = b.parts;
+      if (typeof p.upload_id !== 'string' || !/^[a-z0-9-]{8,64}$/.test(p.upload_id) || !Number.isInteger(p.public) || !Number.isInteger(p.full)
+        || p.public < 1 || p.full < 1) return fail(400, 'parts ไม่ถูกต้อง');
+      const env = b.full_enc;
+      if (!(env && typeof env === 'object' && env.hylmeEnc === 1 && typeof env.iv === 'string' && env.salt === vault.salt && env.ct === undefined))
+        return fail(400, 'full_enc ไม่ได้เข้ารหัสด้วยรหัสผ่านปัจจุบัน');
+      const got = await sql('SELECT field, count(*) AS n, max(part) AS mx FROM publish_parts WHERE upload_id = $1 GROUP BY field', [p.upload_id]);
+      const has = (f, n) => got.some((r) => r.field === f && Number(r.n) === n && Number(r.mx) === n - 1);
+      if (!has('public_gz', p.public) || !has('full_ct', p.full)) return fail(400, 'ได้รับข้อมูลไม่ครบทุกชิ้น — ลองบันทึกใหม่');
+      const [[row]] = await sqlTx([
+        [`INSERT INTO snapshots (source, public_gz, full_enc, public_sha256, bytes, file_count, order_count, note)
+          SELECT $1, pub.d, $2::jsonb || jsonb_build_object('ct', ful.d), encode(sha256(convert_to(pub.d, 'UTF8')), 'hex'),
+                 length(pub.d) + length(ful.d), $3, $4, $5
+          FROM (SELECT string_agg(data, '' ORDER BY part) AS d FROM publish_parts WHERE upload_id = $6 AND field = 'public_gz') pub,
+               (SELECT string_agg(data, '' ORDER BY part) AS d FROM publish_parts WHERE upload_id = $6 AND field = 'full_ct') ful
+          RETURNING ${META}`,
+          [source, JSON.stringify(env), int(b.file_count), int(b.order_count), note, p.upload_id]],
+        ["DELETE FROM publish_parts WHERE upload_id = $1 OR created_at < now() - interval '1 day'", [p.upload_id]],
+        [`DELETE FROM snapshots WHERE id NOT IN (SELECT id FROM snapshots ORDER BY id DESC LIMIT ${KEEP})`],
+        ["DELETE FROM auth_log WHERE at < now() - interval '180 days'"],
+      ]);
+      return json({ ok: true, snapshot: meta(row) });
+    }
     if (typeof b.public_gz !== 'string' || !B64.test(b.public_gz)) return fail(400, 'public_gz ไม่ถูกต้อง');
     // ข้อมูลจริงต้องเข้ารหัสด้วยรหัสผ่านชุดปัจจุบัน (salt ตรงกัน) ไม่อย่างนั้นจะไม่มีใครเปิดได้
     if (!isEnvelope(b.full_enc, vault.salt)) return fail(400, 'full_enc ไม่ได้เข้ารหัสด้วยรหัสผ่านปัจจุบัน');
-    const source = ['dashboard', 'build', 'migrate'].includes(b.source) ? b.source : 'dashboard';
-    const int = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
     const [[row]] = await sqlTx([
       [`INSERT INTO snapshots (source, public_gz, full_enc, public_sha256, bytes, file_count, order_count, note)
         VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8) RETURNING ${META}`,

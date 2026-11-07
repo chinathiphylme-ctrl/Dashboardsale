@@ -736,6 +736,25 @@
       'ไม่ได้ส่งอะไรออกไป\n\n' + leaks.join('\n') + '\n\nมักเกิดจากไฟล์ที่นำเข้ามีคอลัมน์ใหม่ที่ระบบยังไม่รู้จัก — ส่งข้อความนี้ให้คนดูแลระบบ');
     return null;
   }
+  /* บันทึกรอบใหม่ (7 พ.ย. 69): Neon Functions รับคำขอได้ไม่เกิน 10 MB — รอบข้อมูลโตถึง ~10 MB แล้ว
+     ก้อนเกิน 8 MB -> ส่ง public_gz และ full_enc.ct เป็นชิ้นละ 4 MB (/publish-part) แล้วสั่งประกอบ (/publish + parts) */
+  const PUBLISH_PART = 4 * 1024 * 1024;
+  async function publishSnapshot(body, key, progress){
+    if(body.public_gz.length + body.full_enc.ct.length < 8 * 1024 * 1024) return api('/publish', {method:'POST', body:body, key:key});
+    const id = 'u' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    const cut = s => { const out = []; for(let i = 0; i < s.length; i += PUBLISH_PART) out.push(s.slice(i, i + PUBLISH_PART)); return out; };
+    const pub = cut(body.public_gz), ful = cut(body.full_enc.ct), total = pub.length + ful.length;
+    let done = 0;
+    for(const [field, list] of [['public_gz', pub], ['full_ct', ful]]){
+      for(let i = 0; i < list.length; i++){
+        await api('/publish-part', {method:'POST', key:key, body:{upload_id:id, field:field, part:i, data:list[i]}});
+        done++; if(progress) progress(done, total);
+      }
+    }
+    const env = Object.assign({}, body.full_enc); delete env.ct;
+    return api('/publish', {method:'POST', key:key, body:{source:body.source, file_count:body.file_count, order_count:body.order_count,
+      note:body.note, full_enc:env, parts:{upload_id:id, public:pub.length, full:ful.length}}});
+  }
   // ปุ่ม "บันทึกลง Database"
   async function publishFromPage(){
     if(!uploadedFiles.length){ notice('ยังไม่มีข้อมูลให้บันทึก', 'อัปโหลดไฟล์ก่อน'); return; }
@@ -771,7 +790,7 @@
           + '\n\nทุกคนเห็น: ยอดขายครบ แต่ชื่อ/เบอร์/ที่อยู่ลูกค้าเป็นค่าปลอม\nข้อมูลจริง: เข้ารหัสไว้ เปิดได้ด้วยรหัสผ่านเท่านั้น 🔒'});
       if(!ok) return;
       set('⏳ กำลังบันทึก…');
-      const res = await api('/publish', {method:'POST', body:body, key:V.key});
+      const res = await publishSnapshot(body, V.key, (d, t) => set('⏳ กำลังบันทึก… ' + d + '/' + t));
       V.snapshot = {id:res.snapshot.id, created_at:res.snapshot.created_at};
       if(typeof RETURNS_DATA !== 'undefined' && RETURNS_DATA) RETURNS_DATA.saved = true;
       if(typeof renderReturnsPage === 'function' && document.body.classList.contains('page-returns')) renderReturnsPage();
@@ -817,7 +836,7 @@
     // ใช้โดย tools/build.mjs และชุดทดสอบ
     _build:{deriveKey:deriveKey, encryptJSON:encryptJSON, decryptEnv:decryptEnv, maskData:maskData, makeMasker:makeMasker,
       macKeyFor:macKeyFor, sha256:sha256, hmacFactory:hmacFactory, packFiles:packFiles, ITER:ITER,
-      authToken:authToken, gzipB64:gzipB64, gunzipJSON:gunzipJSON, findLeaks:findLeaks}
+      authToken:authToken, gzipB64:gzipB64, gunzipJSON:gunzipJSON, findLeaks:findLeaks, PUBLISH_PART:PUBLISH_PART}
   };
 })();
 </script>

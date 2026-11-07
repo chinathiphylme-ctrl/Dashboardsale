@@ -75,6 +75,19 @@ async function api(cfg, p, { method = 'GET', body, token } = {}) {
   if (!r.ok) throw Object.assign(new Error((j.error || 'database ตอบ ' + r.status) + ` (${method} ${p})`), { status: r.status });
   return j;
 }
+// Neon Functions รับคำขอได้ไม่เกิน 10 MB -> ก้อนเกิน 8 MB ส่งเป็นชิ้นละ 4 MB แล้วสั่งประกอบ (เหมือนปุ่มในหน้าเว็บ)
+async function publishSnapshot(cfg, body, token) {
+  const PART = 4 * 1024 * 1024;
+  if (body.public_gz.length + body.full_enc.ct.length < 8 * 1024 * 1024) return api(cfg, '/publish', { method: 'POST', body, token });
+  const id = 'u' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  const cut = (s) => { const out = []; for (let i = 0; i < s.length; i += PART) out.push(s.slice(i, i + PART)); return out; };
+  const pub = cut(body.public_gz), ful = cut(body.full_enc.ct);
+  for (const [field, list] of [['public_gz', pub], ['full_ct', ful]])
+    for (let i = 0; i < list.length; i++) await api(cfg, '/publish-part', { method: 'POST', token, body: { upload_id: id, field, part: i, data: list[i] } });
+  const env = { ...body.full_enc }; delete env.ct;
+  return api(cfg, '/publish', { method: 'POST', token, body: { source: body.source, file_count: body.file_count, order_count: body.order_count,
+    note: body.note, full_enc: env, parts: { upload_id: id, public: pub.length, full: ful.length } } });
+}
 function ask(question) {
   return new Promise((resolve, reject) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
@@ -201,7 +214,7 @@ async function sync(cfg, HV, pk, XLSX) {
     file_count: files.length, order_count: files.reduce((n, f) => n + ((f.leadsRows || []).length), 0),
     note: 'Pancake API อัตโนมัติ — ' + summary,
   };
-  const res = await api(cfg, '/publish', { method: 'POST', body, token });
+  const res = await publishSnapshot(cfg, body, token);
   await log(`✅ บันทึกรอบ ${res.snapshot.id} — ${summary}`);
   return 0;
 }
