@@ -177,7 +177,22 @@ async function sync(cfg, HV, pk, XLSX) {
   for (const k of ['orderEdits', 'ads', 'productAds']) if (pub[k] !== undefined) masked[k] = pub[k];
   const realOut = { ...base, orderEdits: real.orderEdits };
 
-  if (args.has('--dry-run')) { await log('🧪 dry-run (ไม่บันทึก) — ' + summary); return 0; }
+  if (args.has('--dry-run')) {
+    await log('🧪 dry-run (ไม่บันทึก) — ' + summary);
+    if (args.has('--detail')) {                   // รายวัน + ออเดอร์ที่ยอด/วันเปลี่ยน (เลขออเดอร์เท่านั้น ไม่มีข้อมูลลูกค้า)
+      const ds = [...new Set([...before.days.keys(), ...after.days.keys()])].sort();
+      ds.forEach((d) => { const a = before.days.get(d) || { orders: 0, gross: 0 }, b = after.days.get(d) || { orders: 0, gross: 0 };
+        if (a.orders !== b.orders || Math.abs(a.gross - b.gross) > 0.5) console.log(`  ${d}  ออเดอร์ ${a.orders} -> ${b.orders}  ยอด ${a.gross.toFixed(0)} -> ${b.gross.toFixed(0)} (${(b.gross - a.gross) >= 0 ? '+' : ''}${(b.gross - a.gross).toFixed(0)})`); });
+      const ch = [];
+      after.lead.forEach((n, id) => { const o = before.lead.get(id);
+        if (!o) { ch.push(`${id} ใหม่ ${String(n['Lead Purchase Date']).slice(0, 10)} ${Number(n.__grossIncl || 0).toFixed(0)}`); return; }
+        const a = Number(o.__grossIncl ?? o['Lead Value'] * 1.07) || 0, b = Number(n.__grossIncl ?? n['Lead Value'] * 1.07) || 0;
+        const d1 = String(o['Lead Purchase Date']).slice(0, 10), d2 = String(n['Lead Purchase Date']).slice(0, 10);
+        if (Math.abs(a - b) > 0.5 || d1 !== d2) ch.push(`${id} ${d1}${d1 !== d2 ? '->' + d2 : ''} ยอด ${a.toFixed(0)} -> ${b.toFixed(0)}`); });
+      console.log('  ออเดอร์ที่เปลี่ยน / ใหม่: ' + ch.length); ch.forEach((x) => console.log('   ' + x));
+    }
+    return 0;
+  }
   // 5. มีคนกดบันทึกจากหน้าเว็บระหว่างรอบ -> ข้าม (รอบหน้าค่อยทำใหม่บนข้อมูลล่าสุด)
   const now = (await api(cfg, '/snapshots', { token })).snapshots || [];
   if ((now.length ? now[0].id : null) !== latestId) { await log('↷ ข้ามรอบนี้ — มีการบันทึกจากหน้าเว็บระหว่างรอบ'); return 0; }
