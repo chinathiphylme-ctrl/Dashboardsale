@@ -4576,6 +4576,7 @@ function gsProductSku(name, rawSku){
   if(sku && sku !== '-') return sku;
   const s = gsNorm(name).toLowerCase();
   if(/daily oils|daily oil|oils blend|dob|เดลี่/.test(s)) return 'HM-DOB-01';
+  if(/bis\s*glycinate|บิสไกลซิเน[ตท]/.test(s)) return 'HM-MNS-05';     // 9 พ.ย. 69 Mag ใหม่ (Mag 60) — ต้องเช็กก่อน Mag เดิม
   if(/magnesium|แมกนีเซียม|mag\b|แมก/.test(s)) return 'HM-MNS-01';
   if(/gluta|collagen|กลูต้า|คอลลาเจน/.test(s)) return 'HM-GT-01';
   if(/pocket\s*evoo/.test(s)) return 'HM-PEVO-01';                       // 9 พ.ย. 69 — ต้องเช็กก่อน olive
@@ -4891,6 +4892,8 @@ const PANCAKE_SKU_NAME = {
   'HM-OL-01':'Hylme Organic Extra Virgin Olive Oil',
   'HM-DOB-01':'Hylme Daily Oils Blend',
   'HM-MNS-01':'Hylme Magnesium Glycinate',
+  'HM-MNS-05':'Hylme Magnesium Bisglycinate',   // Mag ใหม่ 875 มก. 60 แคปซูล ฿990 (= Mag 60) · 9 พ.ย. 69 แยกจาก Mag เดิม
+  'HM-MNSB-01':'Hylme Magnesium Bisglycinate',  // รหัสเก่าของ Mag ใหม่ (ชื่อเดียวกันใน Pancake)
   'HM-GT-01':'Hylme Gluta Collagen',
   'HM-GB-01':'Hylme GABA',
   'HM-D3K2-01':'Hylme Vitamin D3 + K2',     // สินค้าใหม่ 7 พ.ย. 69 · 60 แคปซูล ฿690
@@ -4901,6 +4904,7 @@ const PANCAKE_SKU_NAME = {
 const PK_NAME_SKU = [
   [/d3\s*\+?\s*k2|vitamin\s*d3|วิตามิน\s*ดี\s*3/i, 'HM-D3K2-01'],
   [/pocket\s*evoo/i,                               'HM-PEVO-01'],
+  [/bis\s*glycinate|บิสไกลซิเน[ตท]/i,               'HM-MNS-05'],
 ];
 function pkSkuFix(sku, name){
   const s = String(sku || '').trim();
@@ -6154,6 +6158,7 @@ function mapOldProduct(name){
   if(/d3\s*\+?\s*k2|vitamin\s*d3|วิตามิน\s*ดี\s*3/.test(s)) return { sku:'HM-D3K2-01', name:'Hylme Vitamin D3 + K2' };
   if(s.includes('olive') || s.includes('โอลีฟ') || s.includes('มะกอก')) return { sku:'HM-OL-01', name:'Hylme Organic Extra Virgin Olive Oil' };
   if(s.includes('daily oil') || s.includes('daliy oil') || s.includes('oils blend') || s.includes('dob') || s.includes('เดลี่')) return { sku:'HM-DOB-01', name:'Hylme Daily Oils Blend 60 Softgel' };
+  if(/bis\s*glycinate|บิสไกลซิเน[ตท]/.test(s)) return { sku:'HM-MNS-05', name:'Hylme Magnesium Bisglycinate' };   // 9 พ.ย. 69
   if(s.includes('mag') || s.includes('แมก')) return { sku:'HM-MNS-01', name:'Hylme Magnesium Glycinate' };
   if(s.includes('gluta') || s.includes('กลูต้า') || s.includes('คอลลาเจน')) return { sku:'HM-GT-01', name:'Hylme Gluta Collagen' };
   if(s.includes('gaba') || s.includes('กาบา') || s.includes('กาบ้า')) return { sku:'HM-GB-01', name:'Hylme GABA' };
@@ -7717,6 +7722,7 @@ function isShippingLine(name){
 const PRODUCT_ORDER = [
   'Daily Oils Blend',
   'Magnesium Glycinate',
+  'Magnesium Bisglycinate', // 9 พ.ย. 69 Mag ใหม่ (Mag 60)
   'Gluta Collagen',
   'Organic Extra Virgin Olive Oil',
   'GABA',
@@ -7753,6 +7759,7 @@ const PRODUCT_ALIASES = [
   [/d3\s*\+?\s*k2|vitamin\s*d3|วิตามิน\s*ดี\s*3/i,          'Vitamin D3 + K2'],    // 9 พ.ย. 69
   [/olive\s*oil|น้ำมันมะกอก/i,                             'Organic Extra Virgin Olive Oil'],
   [/gluta|collagen|กลูต้า|คอลลาเจน/i,                       'Gluta Collagen'],
+  [/bis\s*glycinate|บิสไกลซิเน[ตท]/i,                       'Magnesium Bisglycinate'], // 9 พ.ย. 69 Mag ใหม่ — ก่อน Mag เดิม
   [/magnesium|glycinate|แมกนีเซียม|ไกลซิเนท/i,              'Magnesium Glycinate'],
   [/da[il]{2}y|daily\s*oils?\s*blend/i,                     'Daily Oils Blend'],   // รับชื่อที่พิมพ์สลับตัวด้วย เช่น "Daliy"
   [/premium\s*box\s*set/i,                                 'Healme V-9 Mixed Oils'],
@@ -7776,6 +7783,7 @@ function shortProductName(name){
 const PRODUCT_COLOR = {
   'Daily Oils Blend'                : 'var(--series-3)',  // เหลือง
   'Magnesium Glycinate'             : 'var(--series-1)',  // น้ำเงิน
+  'Magnesium Bisglycinate'          : 'var(--series-8)',  // 9 พ.ย. 69 Mag ใหม่ (ใช้ร่วมกับเซ็ต S-9 + V-9 ที่เลิกขาย — สีครบ 8 แล้ว)
   'Gluta Collagen'                  : 'var(--series-7)',  // ชมพู
   'Organic Extra Virgin Olive Oil'  : 'var(--series-2)',  // เขียว
   'GABA'                            : 'var(--series-5)',  // ม่วง
@@ -7880,8 +7888,8 @@ const TELESALES_MC_PERSON = 'Chitanuch Chitranondh';
 //     + ใส่ "PRE-ORDER" ในช่อง Shop Internal Notes ของ MC (6 พ.ย. 69: เพิ่ม HM-MNS-05)
 //     Olive Oil ไม่ใช่พรีออเดอร์แล้ว (26 ต.ค. 69) -> ไม่ใส่หมายเหตุ Pre-order
 //     9 พ.ย. 69: เพิ่ม D3 + K2 (HM-D3K2-01) และ Pocket EVOO (HM-PEVO-01) — เจ้าของแจ้งว่าเป็นพรีออเดอร์ทั้งคู่
-const PREORDER_SKUS = new Set(['HM-MNS-05', 'HM-GB-01', 'HM-D3K2-01', 'HM-PEVO-01']);    // HM-GB-01 = GABA
-const PREORDER_NAME_KEYWORDS = ['gaba','กาบา','กาบ้า','d3k2','d3 + k2','d3+k2','pocket evoo'];   // เผื่อกรณีไม่มี SKU ตรง ให้ดูจากชื่อสินค้า
+const PREORDER_SKUS = new Set(['HM-MNS-05', 'HM-MNSB-01', 'HM-GB-01', 'HM-D3K2-01', 'HM-PEVO-01']);    // HM-GB-01 = GABA · HM-MNSB-01 = รหัสเก่าของ Mag ใหม่
+const PREORDER_NAME_KEYWORDS = ['gaba','กาบา','กาบ้า','d3k2','d3 + k2','d3+k2','pocket evoo','bisglycinate','บิสไกลซิเนต'];   // เผื่อกรณีไม่มี SKU ตรง ให้ดูจากชื่อสินค้า
 const STATUS_FULFILL = 'Fulfill (อนุมัติ)';
 const STATUS_ONHOLD  = 'OnHold (จอง)';
 // (4b) หมายเหตุภายในจาก Pancake ที่นัดวันจัดส่ง เช่น "จัดส่งวันที่ 25 พ.ย." -> ถ้าวันนั้นยังมาไม่ถึง (หลังวันที่ export)
@@ -11776,7 +11784,7 @@ const PRODUCT_ADS_ITEMS = [
   {key:'Gluta',      label:'Gluta',              skus:['HM-GT-01'],  color:'var(--series-7)'},
   {key:'EVOO(ข)',    label:'น้ำมันมะกอก (ข)',     skus:['HM-OL-01'],  color:'var(--series-2)'},
   {key:'GABA',       label:'GABA',               skus:['HM-GB-01'],  color:'var(--series-5)'},
-  {key:'Mag 60',     label:'Mag 60',             skus:[], color:'var(--seq-350)'},   // ยังไม่มี SKU — ใส่รหัสสินค้าเมื่อเริ่มขาย ยอดขายถึงจะขึ้น
+  {key:'Mag 60',     label:'Mag 60',             skus:['HM-MNS-05','HM-MNSB-01'], color:'var(--seq-350)'},   // 9 พ.ย. 69 = Mag ใหม่ Magnesium Bisglycinate 875 มก.
   {key:'Fiber',      label:'Fiber',              skus:[], color:'var(--series-8)'},
   {key:'EVOO(ซ)',    label:'น้ำมันมะกอก (ซ)',     skus:['HM-PEVO-01'], color:'var(--series-4)'},   // Pocket EVOO (9 พ.ย. 69)
   {key:'D3K2',       label:'D3 + K2',            skus:['HM-D3K2-01'], color:'var(--series-6)'},   // 9 พ.ย. 69
