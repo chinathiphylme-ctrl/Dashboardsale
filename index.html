@@ -12,6 +12,14 @@
     background:color-mix(in srgb, var(--warning) 16%, transparent); border:1px solid color-mix(in srgb, var(--warning) 45%, transparent); }
   .hv-badge[hidden]{ display:none; }
   .hv-overlay{ position:fixed; inset:0; z-index:9999; display:grid; place-items:center; padding:16px; background:rgba(0,0,0,.45); }
+  /* แถบ "ข้อมูลรอบใหม่" (LIVE UPDATE ท้ายไฟล์) */
+  .live-bar{ position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:9000; display:flex; align-items:center; gap:10px;
+    width:max-content; max-width:calc(100vw - 32px); padding:10px 14px; border-radius:14px; font-family:var(--font); font-size:13px; line-height:1.45;
+    background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border); box-shadow:var(--shadow-card); }
+  .live-bar[hidden]{ display:none; }
+  .live-bar .live-dot{ flex:none; width:8px; height:8px; border-radius:50%; background:var(--good); }
+  .live-bar .live-go{ flex:none; white-space:nowrap; }
+  .live-bar .live-go[hidden]{ display:none; }
   .hv-card{ width:100%; max-width:380px; background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);
     border-radius:20px; padding:24px; box-shadow:var(--shadow-card); font-family:var(--font); }
   .hv-card h2{ margin:0 0 6px; font-size:17px; }
@@ -573,6 +581,7 @@
         await new Promise(r => setTimeout(r, 30));   // ให้หน้าจอวาดข้อความก่อนคำนวณชุดข้อมูลใหม่
         skipLocalSaveOnce = true;
         afterFilesLoaded();
+        if(window.__liveMarkClean) window.__liveMarkClean();
         refreshUI();
         close(true);
       });
@@ -793,6 +802,7 @@
       const res = await publishSnapshot(body, V.key, (d, t) => set('⏳ กำลังบันทึก… ' + d + '/' + t));
       V.snapshot = {id:res.snapshot.id, created_at:res.snapshot.created_at};
       if(typeof RETURNS_DATA !== 'undefined' && RETURNS_DATA) RETURNS_DATA.saved = true;
+      if(window.__liveMarkClean) window.__liveMarkClean();   // หน้านี้ = รอบที่เพิ่งบันทึก -> ไม่มีอะไรค้าง
       if(typeof renderReturnsPage === 'function' && document.body.classList.contains('page-returns')) renderReturnsPage();
       notice('บันทึกลง Database เรียบร้อย ✅', 'รอบที่ ' + res.snapshot.id + ' · ' + new Date(res.snapshot.created_at).toLocaleString('th-TH')
         + '\nคนที่เปิดเว็บอยู่กด refresh ก็เห็นข้อมูลชุดนี้ทันที');
@@ -821,7 +831,41 @@
     return masked;
   }
 
+  /* ---------- ข้อมูลใหม่โดยไม่ต้อง refresh (14 พ.ย. 69) ----------
+     หน้าเว็บถาม /latest เป็นระยะ ถ้ามีรอบใหม่ก็โหลดมาแทนเหมือนกด refresh (ตัวตั้งเวลา/หน้าจออยู่ท้ายไฟล์ "LIVE UPDATE") */
+  const sessionAuth = () => V.key ? {key:V.key} : {session:true};
+  async function latestSnapshot(){ return api('/latest', sessionAuth()); }
+  // ดึงรอบล่าสุดให้ครบก่อน (ผู้ดูแลที่ปลดล็อกอยู่ = ข้อมูลจริงด้วย) -> คืนฟังก์ชัน commit() ที่แทนข้อมูลในหน้าทีเดียว
+  // ดึงไม่สำเร็จ = ข้อมูลเดิมไม่เปลี่ยน · คนเรียกตรวจได้ก่อน commit ว่าระหว่างรอมีใครอัปโหลด/แก้อะไรไหม
+  async function fetchLatest(){
+    const j = await api('/public', sessionAuth());
+    const pub = await gunzipJSON(j.public_gz);
+    if(!pub || !Array.isArray(pub.files) || !pub.files.length) return null;
+    let full = null;
+    if(V.unlocked && V.key) full = JSON.parse(await decryptEnv((await api('/full?id=' + encodeURIComponent(j.id), {key:V.key})).full_enc, V.key));
+    return {id:j.id, created_at:j.created_at, commit:() => commitLatest(j, pub, full)};
+  }
+  function commitLatest(j, pub, full){
+    uploadedFiles = pub.files;
+    if(pub.returnDecisions) RETURN_REVIEW_DECISIONS = pub.returnDecisions;
+    if(pub.returnAdditions) RETURN_REVIEW_ADDITIONS = pub.returnAdditions;
+    if(pub.orderEdits && typeof ORDER_EDITS !== 'undefined') ORDER_EDITS = pub.orderEdits;
+    if(pub.returns && typeof RETURNS_DATA !== 'undefined') RETURNS_DATA = pub.returns;
+    if(Array.isArray(pub.ads) && typeof adsMerge === 'function') adsRecords = adsMerge(adsRecords, pub.ads.filter(adsValid));
+    if(Array.isArray(pub.productAds) && typeof prodAdsMerge === 'function') productAdsRecords = prodAdsMerge(productAdsRecords, pub.productAds.filter(prodAdsValid));
+    if(full){
+      RETURN_REVIEW_DECISIONS = full.returnDecisions;
+      RETURN_REVIEW_ADDITIONS = full.returnAdditions;
+      if(full.orderEdits && typeof ORDER_EDITS !== 'undefined') ORDER_EDITS = full.orderEdits;
+      if(full.returns && typeof RETURNS_DATA !== 'undefined') RETURNS_DATA = full.returns;
+      uploadedFiles = full.files;
+    }
+    V.snapshot = {id:j.id, created_at:j.created_at};
+    return true;
+  }
+
   window.HylmeVault = {
+    live:{latest:latestSnapshot, fetch:fetchLatest, current:() => V.snapshot},
     isLocked:isLocked, isPublic:isPublic, autoUnlock:autoUnlock, promptUnlock:promptUnlock, lock:lock,
     dialog:dialog, notice:notice,
     setDataFileEnc:env => { V.dataFileEnc = env || null; },
@@ -6524,7 +6568,25 @@ function mergeReturnReviewDecisions(){
 }
 
 var skipLocalSaveOnce = false;
-function afterFilesLoaded(){
+// มุมมองที่เปิดอยู่ (ก่อนโหลดรอบใหม่) — จำวัน/สัปดาห์/เดือนเป็น "วันที่" ไม่ใช่ลำดับ เพราะรอบใหม่อาจมีวันเพิ่ม
+// ถ้าดูวันล่าสุดอยู่ ให้เลื่อนไปวันล่าสุดของรอบใหม่ (เช่นข้ามเที่ยงคืนแล้วมีวันใหม่)
+function liveViewSnapshot(){
+  if(!DATA || !state) return null;
+  const at = (arr, i, f) => { const x = arr && arr[i]; return x ? x[f] : null; };
+  return { state:Object.assign({}, state),
+    day:at(DATA.days, state.dayIndex, 'date'), dayLast:state.dayIndex === DATA.days.length - 1,
+    week:at(DATA.weeks, state.weekIndex, 'key'), weekLast:state.weekIndex === DATA.weeks.length - 1,
+    month:at(DATA.months, state.monthIndex, 'key'), monthLast:state.monthIndex === DATA.months.length - 1 };
+}
+function liveRestoreState(v){
+  const idx = (arr, k, f, last) => { if(last || k == null) return arr.length - 1; const i = arr.findIndex(x => x[f] === k); return i >= 0 ? i : arr.length - 1; };
+  return Object.assign({}, v.state, {
+    dayIndex:idx(DATA.days, v.day, 'date', v.dayLast),
+    weekIndex:idx(DATA.weeks, v.week, 'key', v.weekLast),
+    monthIndex:idx(DATA.months, v.month, 'key', v.monthLast) });
+}
+// view = มุมมองเดิมจาก liveViewSnapshot() (โหลดรอบใหม่เองระหว่างเปิดหน้า) -> ไม่เด้งกลับไปวันล่าสุด / ทีมทั้งหมด
+function afterFilesLoaded(view){
   if(uploadedFiles.length === 0) return;
   mergeReturnReviewDecisions();
   // Local operator decisions must survive a refresh even when data.json is loaded first.
@@ -6537,6 +6599,7 @@ function afterFilesLoaded(){
     topActions.style.display = 'flex';
     state = { mode:'day', dayIndex: DATA.days.length-1, weekIndex: DATA.weeks.length-1, monthIndex: DATA.months.length-1,
               rgFrom:null, rgTo:null, team:'all', person:'', channel:'', teamScope:'period' };
+    if(view && view.state) state = liveRestoreState(view);
     renderAll();
     // จำข้อมูลชุดนี้ไว้ในเบราว์เซอร์ ครั้งต่อไปไม่ต้องอัปโหลดใหม่ — ยกเว้นเพิ่งเปิดจากข้อมูลที่ฝัง/data.json
     // (ข้อมูลชุดนั้นโหลดจากไฟล์ทุกครั้งอยู่แล้ว การเซฟซ้ำทำให้หน้าค้างตอนเปิดเกือบ 2 วินาที)
@@ -16187,7 +16250,7 @@ function renderReturnsTable(scoped){
 (async function init(){
   // 1) ข้อมูลจาก data.json บนเว็บ (ทุกคนที่เปิดลิงก์เห็นเหมือนกัน)
   // 0) database (หน้าเว็บที่ build แบบใช้ database) -> 1) data.json -> 2) ข้อมูลที่ฝังในไฟล์
-  if(await HylmeVault.loadFromApi() || await loadFromDataFile()){ await HylmeVault.autoUnlock(); skipLocalSaveOnce = true; afterFilesLoaded(); return; }
+  if(await HylmeVault.loadFromApi() || await loadFromDataFile()){ await HylmeVault.autoUnlock(); skipLocalSaveOnce = true; afterFilesLoaded(); if(window.__liveMarkClean) window.__liveMarkClean(); return; }
   // 2) ข้อมูลที่ฝังในไฟล์ (ไฟล์ที่ bake ไว้)
   if(EMBEDDED_DATA && Array.isArray(EMBEDDED_DATA) && EMBEDDED_DATA.length){
     uploadedFiles = EMBEDDED_DATA.slice();
@@ -16200,5 +16263,133 @@ function renderReturnsTable(scoped){
   if(loadFromLocal()){ afterFilesLoaded(); return; }
   // ไม่มีข้อมูลเลย -> เปิดแผงหลังบ้านให้เห็นหน้าจออัปโหลดทันที
   if(window.__openBackend) window.__openBackend();
+})();
+
+// ==================== LIVE UPDATE: ข้อมูลรอบใหม่เข้าเองโดยไม่ต้อง refresh (owner 14 พ.ย. 69) ====================
+/* ทุก 1 นาที (และทุกครั้งที่กลับมาที่แท็บนี้) ถาม database ว่ามีรอบใหม่ไหม (/latest ตอบแค่เลขรอบ) — มีแล้วโหลดมาแทนให้เอง
+   หน้าเดิม ตัวกรองเดิม วัน/ทีมที่เลือกไว้เดิม ตำแหน่งที่เลื่อนไว้เดิม (ถ้าดูวันล่าสุดอยู่ จะเลื่อนไปวันล่าสุดของรอบใหม่)
+   ไม่โหลดทับตอน: แท็บไม่ได้เปิดดู / กำลังพิมพ์ / มีกล่องข้อความเปิด / กำลังบันทึก -> รอแล้วลองใหม่
+   ผู้ดูแลที่อัปโหลด/แก้อะไรไว้แต่ยังไม่บันทึกลง Database หรือเปิดแผงหลังบ้านอยู่ -> ไม่โหลดทับ ขึ้นแถบให้กดโหลดเอง
+   อยู่หลัง init — CRM_V3 (dash_runtime.cjs) ตัดโค้ดตั้งแต่ init ออก ส่วนนี้จึงไม่ไปรันในตัวคำนวณของ CRM */
+(function liveUpdate(){
+  if(typeof location === 'undefined' || !/^https?:$/.test(location.protocol)) return;
+  if(!window.HylmeVault || !HylmeVault.live || !HylmeVault.apiMode()) return;
+  const EVERY = 60 * 1000, RETRY = 15 * 1000, MAX_BACKOFF = 10 * 60 * 1000;
+  let clean = null, busy = false, timer = null, stopped = false, lastCheck = 0, failures = 0, bar = null, toastTimer = null;
+
+  // ลายนิ้วมือของสิ่งที่ผู้ดูแลแก้ในหน้าได้ (ไฟล์ที่อัปโหลด / แก้ไขออเดอร์ / ทะเบียนยกเลิก / ไฟล์ตีคืน) — ต่างจากตอนโหลด = มีของค้าง
+  function sig(){
+    try{
+      const files = (uploadedFiles || []).map(f => [f.name, f.kind || '', f.source || '', (f.leadsRows || []).length, (f.prodRows || []).length,
+        (f.chatRows || []).length, Object.keys(f.records || {}).length, (f.scans || []).length].join('|')).join(';');
+      const oe = typeof ORDER_EDITS !== 'undefined' && ORDER_EDITS ? (ORDER_EDITS.log || []).length + ':' + Object.keys(ORDER_EDITS.edits || {}).length : '';
+      const ra = typeof RETURN_REVIEW_ADDITIONS !== 'undefined' && RETURN_REVIEW_ADDITIONS ? RETURN_REVIEW_ADDITIONS.length : 0;
+      const rd = typeof RETURNS_DATA !== 'undefined' && RETURNS_DATA ? [RETURNS_DATA.file, RETURNS_DATA.at, RETURNS_DATA.saved ? 1 : 0, (RETURNS_DATA.rows || []).length].join('|') : '';
+      return [files, oe, ra, rd].join('#');
+    }catch(e){ return 'x' + Math.random(); }
+  }
+  // พนักงาน (ยังไม่ปลดล็อก) แก้ข้อมูลในหน้าไม่ได้ -> ไม่มีของค้างเสมอ
+  const dirty = () => !HylmeVault.isLocked() && clean !== null && sig() !== clean;
+  const backendOpen = () => { const b = document.getElementById('backendBody'); return !!b && !b.classList.contains('collapsed'); };
+  function blocked(){
+    if(document.hidden || document.querySelector('.hv-overlay')) return true;
+    const a = document.activeElement;
+    if(a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return true;
+    const pb = document.getElementById('btnPublish');
+    return !!(pb && pb.disabled);
+  }
+  // database ส่งเวลาแบบ "2026-11-14 05:05:44.513315+00" -> ทำเป็น ISO ก่อน (บางเบราว์เซอร์อ่านแบบเดิมไม่ได้)
+  const hhmm = t => {
+    let d = new Date(t);
+    if(isNaN(d)) d = new Date(String(t).replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1').replace(/([+-]\d\d)$/, '$1:00'));
+    return isNaN(d) ? '' : d.toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'});
+  };
+
+  function ensureBar(){
+    if(bar) return bar;
+    bar = document.createElement('div');
+    bar.className = 'live-bar'; bar.hidden = true;
+    bar.setAttribute('role', 'status'); bar.setAttribute('aria-live', 'polite');
+    bar.innerHTML = '<span class="live-dot" aria-hidden="true"></span><span class="live-msg"></span><button type="button" class="btn primary live-go" hidden>โหลดข้อมูลใหม่</button>';
+    bar.querySelector('.live-go').addEventListener('click', manualLoad);
+    document.body.appendChild(bar);
+    return bar;
+  }
+  function showBar(msg, withButton){
+    const b = ensureBar();
+    clearTimeout(toastTimer);
+    b.querySelector('.live-msg').textContent = msg;
+    b.querySelector('.live-go').hidden = !withButton;
+    b.hidden = false;
+    if(!withButton) toastTimer = setTimeout(() => { b.hidden = true; }, 5000);
+  }
+  function hideBar(){ if(bar && !bar.querySelector('.live-go').hidden) bar.hidden = true; }
+
+  window.__liveMarkClean = () => { clean = sig(); hideBar(); };
+
+  // โหลดรอบใหม่มาแทน — force = ผู้ดูแลกดเองแล้วยอมทิ้งของที่ยังไม่บันทึก
+  async function apply(force){
+    const got = await HylmeVault.live.fetch();
+    if(!got) return 'empty';
+    // ระหว่างรอดาวน์โหลด มีคนเริ่มพิมพ์ / เปิดกล่อง / อัปโหลดไฟล์ -> ทิ้งรอบนี้ไปก่อน
+    if(blocked()) return 'blocked';
+    if(!force && (dirty() || backendOpen())) return 'dirty';
+    const view = liveViewSnapshot(), y = window.scrollY;
+    got.commit();
+    skipLocalSaveOnce = true;
+    afterFilesLoaded(view);
+    window.__liveMarkClean();
+    requestAnimationFrame(() => window.scrollTo(0, y));
+    showBar('อัปเดตข้อมูลล่าสุดแล้ว · รอบ ' + hhmm(got.created_at) + ' น.', false);
+    return 'ok';
+  }
+  async function manualLoad(){
+    if(busy) return;
+    if(dirty()){
+      const ok = await HylmeVault.dialog({title:'โหลดข้อมูลรอบใหม่', okText:'โหลดรอบใหม่', cancelText:'ยังก่อน',
+        message:'ในหน้านี้มีไฟล์ที่อัปโหลด หรือสิ่งที่แก้ไว้ ที่ยังไม่ได้กด "บันทึกลง Database"\nถ้าโหลดรอบใหม่ สิ่งเหล่านั้นจะหายไป\n\nถ้ายังต้องใช้ ให้กดบันทึกลง Database ก่อน'});
+      if(!ok) return;
+    }
+    busy = true;
+    const btn = ensureBar().querySelector('.live-go');
+    btn.disabled = true; btn.textContent = 'กำลังโหลด…';
+    try{
+      const r = await apply(true);
+      if(r === 'blocked') showBar('ยังโหลดไม่ได้ — ปิดกล่องข้อความ/ช่องที่พิมพ์อยู่ก่อน แล้วกดอีกครั้ง', true);
+    }catch(e){ showBar('โหลดข้อมูลใหม่ไม่สำเร็จ — ' + e.message, true); }
+    finally{ busy = false; btn.disabled = false; btn.textContent = 'โหลดข้อมูลใหม่'; }
+  }
+
+  function schedule(ms){ clearTimeout(timer); if(!stopped) timer = setTimeout(tick, ms); }
+  async function tick(){
+    if(stopped) return;
+    const cur = HylmeVault.live.current();
+    // ยังโหลดครั้งแรกไม่เสร็จ / แท็บไม่ได้เปิดดูอยู่ (กลับมาเมื่อไหร่ค่อยถาม) / กำลังโหลดอยู่
+    if(busy || !cur || clean === null || document.hidden){ schedule(EVERY); return; }
+    busy = true; lastCheck = Date.now();
+    let next = EVERY;
+    try{
+      const j = await HylmeVault.live.latest();
+      failures = 0;
+      if(Number(j.id) > Number(cur.id)){
+        if(blocked()) next = RETRY;
+        else if(dirty() || backendOpen()) showBar('มีข้อมูลรอบใหม่ (' + hhmm(j.created_at) + ' น.) — ยังไม่โหลดทับ เพราะในหน้านี้มีงานที่ยังไม่บันทึก / เปิดหลังบ้านอยู่', true);
+        else{
+          const r = await apply(false);
+          if(r === 'blocked') next = RETRY;
+          else if(r === 'dirty') showBar('มีข้อมูลรอบใหม่ (' + hhmm(j.created_at) + ' น.) — ยังไม่โหลดทับ เพราะในหน้านี้มีงานที่ยังไม่บันทึก / เปิดหลังบ้านอยู่', true);
+        }
+      }
+    }catch(e){
+      // รหัสหมดอายุ / API ยังไม่มี /latest -> หยุดถาม (กด refresh เองได้ตามเดิม) · เน็ตหลุด -> ถามห่างขึ้นเรื่อยๆ
+      if(e.status === 401 || e.status === 403 || (e.status === 404 && /ไม่พบ/.test(e.message || ''))){ stopped = true; console.info('live update หยุด:', e.message); }
+      else{ failures++; next = Math.min(EVERY * Math.pow(2, failures), MAX_BACKOFF); console.warn('live update:', e.message); }
+    }finally{ busy = false; }
+    schedule(next);
+  }
+  const wake = () => { if(!document.hidden && Date.now() - lastCheck > RETRY) schedule(500); };
+  document.addEventListener('visibilitychange', wake);
+  window.addEventListener('focus', wake);
+  schedule(EVERY);
 })();
 </script></body></html>

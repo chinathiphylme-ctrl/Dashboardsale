@@ -15,7 +15,8 @@
 //   GET  /meta              salt, iter, viewer_salt (ไว้คำนวณ token)   (สาธารณะ — ไม่มีข้อมูลขาย)
 //   POST /login             {tokens:[...]} -> role ของ token ที่ถูก   (นับเป็นการลองรหัส 1 ครั้ง)
 //   GET  /public[?id=]      ข้อมูลที่ปิดชื่อ/เบอร์แล้ว                    (token พนักงาน หรือ ผู้ดูแล)
-//   GET  /full[?id=]        ข้อมูลจริงที่เข้ารหัส                         (token ผู้ดูแล)
+//   GET  /latest            เลขรอบล่าสุด {id, created_at} — หน้าเว็บถามเป็นระยะ   (token พนักงาน หรือ ผู้ดูแล)
+//   GET  /full[?id=]        ข้อมูลจริงที่เข้ารหัส                        (token ผู้ดูแล)
 //   GET  /snapshots         รายการ 20 รอบล่าสุด                         (token ผู้ดูแล)
 //   POST /publish           บันทึกรอบใหม่                               (token ผู้ดูแล)
 //                           ก้อนใหญ่: POST /publish-part {upload_id, field: public_gz|full_ct, part, data} ทีละชิ้น (≤ 4 MB)
@@ -148,6 +149,17 @@ async function route(req) {
     const role = roles.includes('admin') ? 'admin' : roles.includes('viewer') ? 'viewer' : null;
     await log('login', !!role, req);
     return role ? json({ ok: true, role, index: roles.indexOf(role) }) : fail(401, 'รหัสผ่านไม่ถูกต้อง');
+  }
+  // รอบล่าสุดคือรอบไหน (14 พ.ย. 69): หน้าเว็บถามทุก ~1 นาทีเพื่อโหลดรอบใหม่เองโดยไม่ต้อง refresh
+  // ตอบแค่เลขรอบ + เวลา (ไม่มีข้อมูลขาย) · บันทึก auth_log เฉพาะตอนรหัสผิด (ถามบ่อย ไม่อยากให้ตารางโต) แต่ยังนับรหัสผิดกันเดารหัสเหมือนเดิม
+  if (method === 'GET' && path === '/latest') {
+    if (!vault) return fail(503, 'ยังไม่ได้ตั้งรหัสผ่านของระบบ');
+    if (await throttled(req)) return fail(429, 'ลองรหัสผิดหลายครั้งเกินไป — รอ 15 นาทีแล้วลองใหม่');
+    const m = /^Bearer (\S+)$/.exec(req.headers.get('authorization') || '');
+    const role = m && TOKEN_RE.test(m[1]) ? roleOf(m[1], vault) : null;
+    if (!role) { await log('latest', false, req); return fail(401, 'รหัสผ่านไม่ถูกต้อง'); }
+    const [row] = await sql('SELECT id, created_at FROM snapshots ORDER BY id DESC LIMIT 1');
+    return row ? json({ ok: true, id: Number(row.id), created_at: row.created_at }) : fail(404, 'ยังไม่มีข้อมูล');
   }
   if (method === 'GET' && path === '/public') {
     const a = await authorize(req, 'public', vault, ['admin', 'viewer']); if (a.error) return a.error;
