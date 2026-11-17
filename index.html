@@ -11653,9 +11653,10 @@ function renderProductChart(){
     + `<div style="color:var(--text-muted);font-size:11.5px;margin-top:6px">ยอดขาย = เงินที่เก็บได้จริง · ส่วนลดจากโปร = ราคาเต็ม × หน่วย − ยอดขาย · สินค้าที่ยังไม่ได้ตั้งราคาเต็มแสดง —</div>`;
 }
 /* ราคาเต็มต่อหน่วย (รวม VAT) ใช้เทียบในตารางราย SKU เท่านั้น — ไม่แตะยอดขาย (owner 17 พ.ย. 69)
-   Mag 60 / GABA ขายทั้ง 950 และ 890 -> ราคาเต็ม 950 (ขาย 890 = ส่วนลด 60) · EVOO / Mag เดิม ยังไม่ได้ตั้ง */
+   Mag 60 / GABA ขายทั้ง 950 และ 890 -> ราคาเต็ม 950 (ขาย 890 = ส่วนลด 60)
+   EVOO: 1 ขวด 500 (หรือ 455) · 2 ขวด 950 (หรือ 900) -> ราคาเต็ม 500/ขวด · Mag เดิม (Magnesium Glycinate) 490 */
 const PRODUCT_LIST_PRICE = {'Daily Oils Blend':490, 'Gluta Collagen':490, 'Magnesium Bisglycinate':950, 'GABA':950,
-  'Vitamin D3 + K2':650, 'Pocket EVOO':550};
+  'Vitamin D3 + K2':650, 'Pocket EVOO':550, 'Organic Extra Virgin Olive Oil':500, 'Magnesium Glycinate':490};
 
 let promoMetric = 'sales';   // 'sales' | 'orders'
 function renderPromoChart(){
