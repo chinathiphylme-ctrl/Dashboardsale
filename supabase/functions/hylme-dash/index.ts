@@ -8,7 +8,7 @@
 // token = HMAC(PBKDF2(รหัส, salt), "hylme-api-auth-v1") · server เก็บแค่ sha256(token) ในตาราง vault
 //
 //   GET  /meta  · POST /login · GET /latest · GET /public[?id=] · GET /full[?id=] · GET /snapshots
-//   POST /publish-part · POST /publish · POST /viewer · GET|POST /return-notes · POST /setup
+//   POST /publish-part · POST /publish · POST /viewer · GET|POST /return-notes · POST /setup · POST /chunks
 //
 // deploy: Supabase MCP deploy_edge_function (verify_jwt: false — the function checks its own Bearer token)
 import postgres from 'npm:postgres@3.4.5';
@@ -41,6 +41,41 @@ const json = (obj: unknown, status = 200) => new Response(JSON.stringify(obj), {
 const fail = (status: number, error: string) => json({ ok: false, error }, status);
 const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
 const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+// ---------- รอบแบบแบ่งก้อน (17 พ.ย. 69 — ประหยัด egress ของ Supabase Free) ----------
+// ผู้บันทึกส่ง public_gz / full_enc.ct เป็น "HYC1|seg|seg|..."  seg = tag:id:base64
+//   tag = f (ไฟล์ 1 ไฟล์ใน files) หรือ k.<ชื่อ> (ค่าอื่นระดับบนสุด) · id = HMAC ของเนื้อข้อมูล (ข้อมูลเดิม = id เดิม)
+// server เก็บก้อนในตาราง chunks (ซ้ำกันเก็บครั้งเดียว) และเก็บใน snapshots แค่ "HYC1M|id,id,..."
+//   GET /public, /full           ประกอบกลับเป็น "HYC1|..." (เครื่องมือเดิม)
+//   GET /public?m=1, /full?m=1   ส่งแค่รายการ id — เบราว์เซอร์โหลดเฉพาะก้อนที่ยังไม่มีผ่าน POST /chunks
+const SEG = /^(f|k\.[A-Za-z0-9_]{1,40}):([A-Za-z0-9_-]{22}):([A-Za-z0-9+/]+={0,2})$/;
+const CHUNK_ID = /^[A-Za-z0-9_-]{22}$/;
+const CHUNK_RESP_MAX = 8 * 1024 * 1024;
+const isChunked = (s: unknown) => typeof s === 'string' && s.startsWith('HYC1|');
+const isManifest = (s: unknown) => typeof s === 'string' && s.startsWith('HYC1M|');
+const okData = (s: unknown) => typeof s === 'string' && s.length > 0 && (isChunked(s) || B64.test(s));
+const bad = (msg: string) => Object.assign(new Error(msg), { status: 400 });
+function splitSegs(s: string) {
+  const ids: string[] = [], rows: [string, string][] = [], seen = new Set<string>();
+  for (const seg of s.slice(5).split('|')) {
+    const m = SEG.exec(seg);
+    if (!m) throw bad('ข้อมูลแบบแบ่งก้อนไม่ถูกต้อง');
+    ids.push(m[2]);
+    if (!seen.has(m[2])) { seen.add(m[2]); rows.push([m[2], seg]); }
+  }
+  if (!ids.length) throw bad('ข้อมูลแบบแบ่งก้อนว่าง');
+  return { ids, rows };
+}
+async function expand(s: string) {
+  if (!isManifest(s)) return s;
+  const ids = s.slice(6).split(',');
+  const rows = await sql('SELECT id, seg FROM hylme_dash.chunks WHERE id IN (SELECT jsonb_array_elements_text($1::text::jsonb))',
+    [JSON.stringify([...new Set(ids)])]);
+  const m = new Map(rows.map((r) => [r.id, r.seg]));
+  const out = ids.map((id) => m.get(id));
+  if (out.some((x) => x == null)) throw Object.assign(new Error('ข้อมูลรอบนี้ไม่ครบ (ก้อนข้อมูลหาย)'), { status: 500 });
+  return 'HYC1|' + out.join('|');
+}
 const META = 'id, created_at::text AS created_at, source, bytes, file_count, order_count, note';
 const num = (v: unknown) => (v == null ? null : Number(v));
 const meta = (r: Record<string, string>) => r && {
@@ -91,7 +126,7 @@ async function readJson(req: Request) {
   try { return JSON.parse(text); } catch { throw Object.assign(new Error('JSON ไม่ถูกต้อง'), { status: 400 }); }
 }
 // deno-lint-ignore no-explicit-any
-const isEnvelope = (e: any, salt: string) => e && typeof e === 'object' && e.hylmeEnc === 1 && typeof e.ct === 'string' && B64.test(e.ct)
+const isEnvelope = (e: any, salt: string) => e && typeof e === 'object' && e.hylmeEnc === 1 && okData(e.ct)
   && typeof e.iv === 'string' && e.salt === salt;
 const snapshotId = (url: URL) => { const v = url.searchParams.get('id'); return v && /^\d{1,18}$/.test(v) ? v : null; };
 async function pick(column: string, url: URL) {
@@ -103,6 +138,31 @@ async function pick(column: string, url: URL) {
 }
 const PRUNE = `DELETE FROM hylme_dash.snapshots WHERE id NOT IN (SELECT id FROM hylme_dash.snapshots ORDER BY id DESC LIMIT ${KEEP})`;
 const PRUNE_LOG = "DELETE FROM hylme_dash.auth_log WHERE at < now() - interval '180 days'";
+const PRUNE_CHUNKS = `DELETE FROM hylme_dash.chunks c WHERE NOT EXISTS (
+  SELECT 1 FROM hylme_dash.snapshots s WHERE c.id = ANY(s.pub_refs) OR c.id = ANY(s.full_refs))`;
+const UPSERT_CHUNKS = `INSERT INTO hylme_dash.chunks (id, kind, seg) SELECT e->>0, $1, e->>1 FROM jsonb_array_elements($2::text::jsonb) e
+  ON CONFLICT (id) DO UPDATE SET seg = EXCLUDED.seg WHERE hylme_dash.chunks.seg IS DISTINCT FROM EXCLUDED.seg`;
+
+// บันทึกรอบ (ทั้งแบบส่งก้อนเดียวและแบบ /publish-part) — แบบแบ่งก้อนแยกเก็บลง chunks
+// deno-lint-ignore no-explicit-any
+async function storeSnapshot(o: { source: string; pub: string; env: any; ct: string; file_count: unknown; order_count: unknown; note: string | null; uploadId?: string }) {
+  const P = isChunked(o.pub) ? splitSegs(o.pub) : null;
+  const F = isChunked(o.ct) ? splitSegs(o.ct) : null;
+  const env = { ...o.env, ct: F ? 'HYC1M|' + F.ids.join(',') : o.ct };
+  const q: [string, unknown[]?][] = [['SELECT pg_advisory_xact_lock(74210117)', []]];
+  if (P) q.push([UPSERT_CHUNKS, ['p', JSON.stringify(P.rows)]]);
+  if (F) q.push([UPSERT_CHUNKS, ['f', JSON.stringify(F.rows)]]);
+  const at = q.length;
+  q.push([`INSERT INTO hylme_dash.snapshots (source, public_gz, full_enc, public_sha256, bytes, file_count, order_count, note, pub_refs, full_refs)
+    VALUES ($1, $2, $3::text::jsonb, $4, $5, $6, $7, $8,
+      ARRAY(SELECT jsonb_array_elements_text($9::text::jsonb)), ARRAY(SELECT jsonb_array_elements_text($10::text::jsonb))) RETURNING ${META}`,
+    [o.source, P ? 'HYC1M|' + P.ids.join(',') : o.pub, JSON.stringify(env), sha256hex(o.pub), o.pub.length + o.ct.length,
+      o.file_count, o.order_count, o.note, JSON.stringify(P ? P.ids : []), JSON.stringify(F ? F.ids : [])]]);
+  if (o.uploadId) q.push(["DELETE FROM hylme_dash.publish_parts WHERE upload_id = $1 OR created_at < now() - interval '1 day'", [o.uploadId]]);
+  q.push([PRUNE], [PRUNE_CHUNKS], [PRUNE_LOG]);
+  const res = await sqlTx(q);
+  return res[at][0];
+}
 
 async function route(req: Request) {
   const url = new URL(req.url);
@@ -135,7 +195,29 @@ async function route(req: Request) {
   if (method === 'GET' && path === '/public') {
     const a = await authorize(req, 'public', vault, ['admin', 'viewer']); if (a.error) return a.error;
     const row = await pick('public_gz', url);
-    return row ? json({ ok: true, ...meta(row), public_gz: row.public_gz }) : fail(404, 'ยังไม่มีข้อมูล');
+    if (!row) return fail(404, 'ยังไม่มีข้อมูล');
+    return json({ ok: true, ...meta(row), public_gz: url.searchParams.get('m') === '1' ? row.public_gz : await expand(row.public_gz) });
+  }
+  if (method === 'POST' && path === '/chunks') {
+    const b = await readJson(req);
+    const kind = b.kind === 'p' || b.kind === 'f' ? b.kind : null;
+    if (!kind) return fail(400, 'kind ไม่ถูกต้อง');
+    const a = await authorize(req, 'chunks', vault, kind === 'f' ? ['admin'] : ['admin', 'viewer']); if (a.error) return a.error;
+    const ids: string[] = Array.isArray(b.ids) ? [...new Set<string>(b.ids.filter((x: unknown) => typeof x === 'string' && CHUNK_ID.test(x)))].slice(0, 5000) : [];
+    if (!ids.length) return fail(400, 'ids ไม่ถูกต้อง');
+    const sizes = await sql('SELECT id, length(seg) AS n FROM hylme_dash.chunks WHERE kind = $1 AND id IN (SELECT jsonb_array_elements_text($2::text::jsonb))',
+      [kind, JSON.stringify(ids)]);
+    const sz = new Map(sizes.map((r) => [r.id, Number(r.n)]));
+    const take: string[] = []; let total = 0;
+    for (const id of ids) {
+      const n = sz.get(id); if (n == null) continue;
+      if (take.length && total + n > CHUNK_RESP_MAX) break;
+      take.push(id); total += n;
+    }
+    const rows = take.length ? await sql('SELECT id, seg FROM hylme_dash.chunks WHERE id IN (SELECT jsonb_array_elements_text($1::text::jsonb))', [JSON.stringify(take)]) : [];
+    const chunks: Record<string, string> = {};
+    rows.forEach((r) => { chunks[r.id] = r.seg; });
+    return json({ ok: true, chunks, missing: ids.filter((id) => !sz.has(id)), more: ids.length - take.length - ids.filter((id) => !sz.has(id)).length });
   }
   if (method === 'GET' && path === '/return-notes') {
     const a = await authorize(req, 'rnotes', vault, ['admin', 'viewer']); if (a.error) return a.error;
@@ -175,7 +257,13 @@ async function route(req: Request) {
     if (!row) return fail(404, 'ยังไม่มีข้อมูล');
     // full_enc is already JSON text — splice it in instead of parse + stringify (several MB)
     const head = JSON.stringify({ ok: true, ...meta(row) });
-    return new Response(head.slice(0, -1) + ',"full_enc":' + row.full_enc + '}', {
+    let envText = row.full_enc;
+    if (envText.includes('"HYC1M|') && url.searchParams.get('m') !== '1') {
+      const env = JSON.parse(envText);
+      env.ct = await expand(env.ct);
+      envText = JSON.stringify(env);
+    }
+    return new Response(head.slice(0, -1) + ',"full_enc":' + envText + '}', {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...CORS },
     });
   }
@@ -190,7 +278,7 @@ async function route(req: Request) {
     if (typeof b.upload_id !== 'string' || !/^[a-z0-9-]{8,64}$/.test(b.upload_id)) return fail(400, 'upload_id ไม่ถูกต้อง');
     if (!['public_gz', 'full_ct'].includes(b.field)) return fail(400, 'field ไม่ถูกต้อง');
     if (!Number.isInteger(b.part) || b.part < 0 || b.part > 199) return fail(400, 'part ไม่ถูกต้อง');
-    if (typeof b.data !== 'string' || !b.data.length || b.data.length > PART_MAX || !B64.test(b.data)) return fail(400, 'data ไม่ถูกต้อง');
+    if (typeof b.data !== 'string' || !b.data.length || b.data.length > PART_MAX || !/^[A-Za-z0-9+/=|:._-]+$/.test(b.data)) return fail(400, 'data ไม่ถูกต้อง');
     await sql(`INSERT INTO hylme_dash.publish_parts (upload_id, field, part, data) VALUES ($1, $2, $3, $4)
                ON CONFLICT (upload_id, field, part) DO UPDATE SET data = EXCLUDED.data, created_at = now()`, [b.upload_id, b.field, b.part, b.data]);
     return json({ ok: true, part: b.part });
@@ -208,31 +296,21 @@ async function route(req: Request) {
       const env = b.full_enc;
       if (!(env && typeof env === 'object' && env.hylmeEnc === 1 && typeof env.iv === 'string' && env.salt === vault!.salt && env.ct === undefined))
         return fail(400, 'full_enc ไม่ได้เข้ารหัสด้วยรหัสผ่านปัจจุบัน');
-      const got = await sql('SELECT field, count(*) AS n, max(part) AS mx FROM hylme_dash.publish_parts WHERE upload_id = $1 GROUP BY field', [p.upload_id]);
-      const has = (f: string, n: number) => got.some((r) => r.field === f && Number(r.n) === n && Number(r.mx) === n - 1);
-      if (!has('public_gz', p.public) || !has('full_ct', p.full)) return fail(400, 'ได้รับข้อมูลไม่ครบทุกชิ้น — ลองบันทึกใหม่');
-      const [[row]] = await sqlTx([
-        [`INSERT INTO hylme_dash.snapshots (source, public_gz, full_enc, public_sha256, bytes, file_count, order_count, note)
-          SELECT $1, pub.d, $2::text::jsonb || jsonb_build_object('ct', ful.d), encode(sha256(convert_to(pub.d, 'UTF8')), 'hex'),
-                 length(pub.d) + length(ful.d), $3, $4, $5
-          FROM (SELECT string_agg(data, '' ORDER BY part) AS d FROM hylme_dash.publish_parts WHERE upload_id = $6 AND field = 'public_gz') pub,
-               (SELECT string_agg(data, '' ORDER BY part) AS d FROM hylme_dash.publish_parts WHERE upload_id = $6 AND field = 'full_ct') ful
-          RETURNING ${META}`,
-          [source, JSON.stringify(env), int(b.file_count), int(b.order_count), note, p.upload_id]],
-        ["DELETE FROM hylme_dash.publish_parts WHERE upload_id = $1 OR created_at < now() - interval '1 day'", [p.upload_id]],
-        [PRUNE], [PRUNE_LOG],
-      ]);
+      const got = await sql(`SELECT field, count(*) AS n, max(part) AS mx, string_agg(data, '' ORDER BY part) AS d
+        FROM hylme_dash.publish_parts WHERE upload_id = $1 GROUP BY field`, [p.upload_id]);
+      const has = (f: string, n: number) => got.find((r) => r.field === f && Number(r.n) === n && Number(r.mx) === n - 1);
+      const gp = has('public_gz', p.public), gf = has('full_ct', p.full);
+      if (!gp || !gf) return fail(400, 'ได้รับข้อมูลไม่ครบทุกชิ้น — ลองบันทึกใหม่');
+      if (!okData(gp.d) || !okData(gf.d)) return fail(400, 'ข้อมูลที่ส่งมาไม่ถูกต้อง');
+      const row = await storeSnapshot({ source, pub: gp.d, env, ct: gf.d, file_count: int(b.file_count), order_count: int(b.order_count),
+        note, uploadId: p.upload_id });
       return json({ ok: true, snapshot: meta(row) });
     }
-    if (typeof b.public_gz !== 'string' || !B64.test(b.public_gz)) return fail(400, 'public_gz ไม่ถูกต้อง');
+    if (!okData(b.public_gz)) return fail(400, 'public_gz ไม่ถูกต้อง');
     if (!isEnvelope(b.full_enc, vault!.salt)) return fail(400, 'full_enc ไม่ได้เข้ารหัสด้วยรหัสผ่านปัจจุบัน');
-    const [[row]] = await sqlTx([
-      [`INSERT INTO hylme_dash.snapshots (source, public_gz, full_enc, public_sha256, bytes, file_count, order_count, note)
-        VALUES ($1, $2, $3::text::jsonb, $4, $5, $6, $7, $8) RETURNING ${META}`,
-        [source, b.public_gz, JSON.stringify(b.full_enc), sha256hex(b.public_gz), b.public_gz.length + b.full_enc.ct.length,
-          int(b.file_count), int(b.order_count), note]],
-      [PRUNE], [PRUNE_LOG],
-    ]);
+    const env = { ...b.full_enc }; delete env.ct;
+    const row = await storeSnapshot({ source, pub: b.public_gz, env, ct: b.full_enc.ct, file_count: int(b.file_count),
+      order_count: int(b.order_count), note });
     return json({ ok: true, snapshot: meta(row) });
   }
   if (method === 'POST' && path === '/setup') {

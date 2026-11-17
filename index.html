@@ -79,8 +79,76 @@
     return {hylmeEnc:1, kdf:'PBKDF2-SHA256', iter:iter, salt:saltB64, iv:b64e(iv), gz:true, ct:b64e(ct)};
   }
   async function decryptEnv(env, key){   // throw ถ้ากุญแจผิด
+    if(isChunkStr(env.ct)) return unpackChunks(env.ct, async data => {
+      const u = b64d(data);
+      const plain = new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM', iv:u.subarray(0, 12)}, key, u.subarray(12)));
+      return new TextDecoder().decode(env.gz ? await pipe(plain, new DecompressionStream('gzip')) : plain);
+    });
     const plain = new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM', iv:b64d(env.iv)}, key, b64d(env.ct)));
     return new TextDecoder().decode(env.gz ? await pipe(plain, new DecompressionStream('gzip')) : plain);
+  }
+
+  /* ---------- รอบแบบแบ่งก้อน (17 พ.ย. 69 — Supabase Free ส่งข้อมูลออกได้ 5 GB/เดือน) ----------
+     เดิมทุกรอบใหม่ (~ทุก 30 นาที) ทุกเครื่องโหลดใหม่ทั้งก้อน 4–10 MB ทั้งที่เปลี่ยนจริงแค่ไฟล์ Pancake (~5%)
+     "HYC1|tag:id:data|..."  tag f = ไฟล์ 1 ไฟล์ใน files · k.<ชื่อ> = ค่าอื่นระดับบนสุด (ads, returns, ...)
+     id = HMAC(กุญแจก้อน, ชนิด|tag\nเนื้อ) 16 ไบต์แรก -> เนื้อเดิม = id เดิม -> เครื่องที่มีก้อนนั้นแล้วไม่ต้องโหลดซ้ำ
+     ข้อมูลจริง: AES-GCM ทีละก้อน iv = HMAC ไบต์ 16–28 (เนื้อเดียวกัน = ก้อนเดียวกัน · เนื้อต่างกัน = iv ต่างกัน)
+     ประกอบกลับ = '{"files":[ไฟล์,ไฟล์,...],"ชื่อ":ค่า,...}' (เหมือน JSON.stringify เดิม เรียง files ก่อน) */
+  const HYC = 'HYC1|';
+  const isChunkStr = s => typeof s === 'string' && s.startsWith(HYC);
+  const b64url = u8 => b64e(u8).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  async function chunkKey(key){
+    const raw = new Uint8Array(await crypto.subtle.exportKey('raw', key));
+    const lab = enc.encode('hylme-chunk-v1|');
+    const m = new Uint8Array(lab.length + raw.length); m.set(lab); m.set(raw, lab.length);
+    return crypto.subtle.importKey('raw', await crypto.subtle.digest('SHA-256', m), {name:'HMAC', hash:'SHA-256'}, false, ['sign']);
+  }
+  function chunkList(obj){
+    if(!obj || !Array.isArray(obj.files)) throw new Error('ข้อมูลรอบไม่มี files');
+    const out = obj.files.map(f => ['f', JSON.stringify(f) ?? 'null']);
+    Object.keys(obj).forEach(k => {
+      if(k === 'files') return;
+      const t = JSON.stringify(obj[k]);
+      if(t === undefined) return;
+      if(!/^[A-Za-z0-9_]{1,40}$/.test(k)) throw new Error('ชื่อข้อมูล "' + k + '" แบ่งก้อนไม่ได้');
+      out.push(['k.' + k, t]);
+    });
+    return out;
+  }
+  // kind 'p' = ข้อมูลที่ปิดชื่อ/เบอร์แล้ว (gzip) · 'f' = ข้อมูลจริง (gzip + AES-GCM)
+  async function packChunks(obj, key, kind){
+    const hk = await chunkKey(key);
+    const segs = [];
+    for(const [tag, text] of chunkList(obj)){
+      const body = enc.encode(text), head = enc.encode(kind + '|' + tag + '\n');
+      const m = new Uint8Array(head.length + body.length); m.set(head); m.set(body, head.length);
+      const h = new Uint8Array(await crypto.subtle.sign('HMAC', hk, m));
+      const gz = await pipe(body, new CompressionStream('gzip'));
+      let data;
+      if(kind === 'f'){
+        const iv = h.slice(16, 28);
+        const ct = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:iv}, key, gz));
+        const u = new Uint8Array(12 + ct.length); u.set(iv); u.set(ct, 12);
+        data = b64e(u);
+      }else data = b64e(gz);
+      segs.push(tag + ':' + b64url(h.slice(0, 16)) + ':' + data);
+    }
+    return HYC + segs.join('|');
+  }
+  const packPublic = (obj, key) => packChunks(obj, key, 'p');
+  async function encryptChunks(obj, key, saltB64, iter){
+    return {hylmeEnc:1, kdf:'PBKDF2-SHA256', iter:iter, salt:saltB64, iv:'', gz:true, chunked:1, ct:await packChunks(obj, key, 'f')};
+  }
+  async function unpackChunks(s, decode){
+    const files = [], keys = [];
+    const segs = s.slice(HYC.length).split('|').map(seg => {
+      const a = seg.indexOf(':'), b = seg.indexOf(':', a + 1);
+      if(a < 1 || b < 0) throw new Error('ข้อมูลแบบแบ่งก้อนเสีย');
+      return [seg.slice(0, a), seg.slice(b + 1)];
+    });
+    const texts = await Promise.all(segs.map(([, d]) => decode(d)));     // ถอดพร้อมกันทุกก้อน (เร็วกว่าทีละก้อน)
+    segs.forEach(([tag], i) => { if(tag === 'f') files.push(texts[i]); else keys.push(JSON.stringify(tag.slice(2)) + ':' + texts[i]); });
+    return '{"files":[' + files.join(',') + ']' + (keys.length ? ',' + keys.join(',') : '') + '}';
   }
 
   /* ---------- SHA-256 / HMAC แบบ synchronous (ใช้ทำค่าปลอมหลายหมื่นค่าโดยไม่ต้อง await ทีละตัว) ---------- */
@@ -449,8 +517,10 @@
   let rcDb = null;
   function rcOpen(){
     if(!rcDb) rcDb = new Promise(res => {
-      try{ const q = indexedDB.open('hylme-round-cache', 1);
-        q.onupgradeneeded = () => q.result.createObjectStore('r');
+      try{ const q = indexedDB.open('hylme-round-cache', 2);
+        q.onupgradeneeded = () => { const d = q.result;
+          if(!d.objectStoreNames.contains('r')) d.createObjectStore('r');
+          if(!d.objectStoreNames.contains('c')) d.createObjectStore('c'); };   // c = ก้อนข้อมูล (id -> "tag:id:data")
         q.onsuccess = () => res(q.result); q.onerror = () => res(null); q.onblocked = () => res(null); }
       catch(e){ res(null); }
     });
@@ -464,6 +534,56 @@
     const db = await rcOpen(); if(!db) return;
     try{ db.transaction('r', 'readwrite').objectStore('r').put({id:String(id), val:val}, kind); }catch(e){}
   }
+  /* รอบแบบแบ่งก้อน: /public?m=1, /full?m=1 ตอบแค่รายการ id ("HYC1M|id,id,...") -> ก้อนที่เครื่องนี้มีแล้ว (store c) ไม่โหลดซ้ำ
+     ที่ยังไม่มี -> POST /chunks · เก็บไว้เฉพาะก้อนของรอบล่าสุด (ข้อมูลทั่วไป + ข้อมูลจริง) */
+  const isManifestStr = s => typeof s === 'string' && s.startsWith('HYC1M|');
+  async function ccGet(ids){
+    const out = new Map(), db = await rcOpen(); if(!db) return out;
+    await new Promise(res => {
+      try{ const t = db.transaction('c'), s = t.objectStore('c');
+        ids.forEach(id => { const g = s.get(id); g.onsuccess = () => { if(typeof g.result === 'string') out.set(id, g.result); }; });
+        t.oncomplete = res; t.onerror = res; t.onabort = res; }
+      catch(e){ res(); }
+    });
+    return out;
+  }
+  async function ccPut(map){
+    const db = await rcOpen(); if(!db) return;
+    try{ const s = db.transaction('c', 'readwrite').objectStore('c'); Object.keys(map).forEach(id => s.put(map[id], id)); }catch(e){}
+  }
+  async function ccPrune(kind, ids){
+    const db = await rcOpen(); if(!db) return;
+    try{
+      db.transaction('r', 'readwrite').objectStore('r').put(ids, 'refs:' + kind);
+      const other = await rcGet('refs:' + (kind === 'p' ? 'f' : 'p'));
+      const keep = new Set(ids.concat(Array.isArray(other) ? other : []));
+      const s = db.transaction('c', 'readwrite').objectStore('c');
+      const k = s.getAllKeys();
+      k.onsuccess = () => k.result.forEach(id => { if(!keep.has(id)) s.delete(id); });
+    }catch(e){}
+  }
+  async function resolveChunks(mani, kind, opt){
+    const ids = mani.slice(6).split(',').filter(Boolean);
+    const have = await ccGet(ids);
+    let miss = [...new Set(ids.filter(id => !have.has(id)))];
+    for(let round = 0; miss.length; round++){
+      if(round > 40) throw new Error('ดึงข้อมูลบางส่วนไม่ได้ — ลอง refresh');
+      const r = await api('/chunks', Object.assign({}, opt, {method:'POST', body:{kind:kind, ids:miss}}));
+      const got = {};
+      Object.keys(r.chunks || {}).forEach(id => { const s = r.chunks[id]; if(typeof s === 'string' && s.split(':', 2)[1] === id){ have.set(id, s); got[id] = s; } });
+      if(!Object.keys(got).length) throw new Error('ข้อมูลรอบนี้ไม่ครบ (' + miss.length + ' ก้อน) — ลอง refresh');
+      ccPut(got);
+      miss = miss.filter(id => !have.has(id));
+    }
+    ccPrune(kind, ids);
+    return 'HYC1|' + ids.map(id => have.get(id)).join('|');
+  }
+  async function expandRound(kind, j, opt){
+    if(kind === 'public' && isManifestStr(j.public_gz)) return Object.assign({}, j, {public_gz:await resolveChunks(j.public_gz, 'p', opt)});
+    if(kind === 'full' && j.full_enc && isManifestStr(j.full_enc.ct))
+      return Object.assign({}, j, {full_enc:Object.assign({}, j.full_enc, {ct:await resolveChunks(j.full_enc.ct, 'f', opt)})});
+    return j;
+  }
   async function api(path, opt){
     opt = opt || {};
     const rc = (!opt.method || opt.method === 'GET') && !opt.noCache ? RC_RE.exec(path) : null;
@@ -472,10 +592,10 @@
       if(!id){ const l = await api('/latest', Object.assign({}, opt, {noCache:true})); id = l && l.id; }
       if(id){
         const hit = await rcGet(rc[1]);
-        if(hit && hit.id === String(id) && hit.val && Number(hit.val.id) === Number(id)) return hit.val;
-        const j = await api('/' + rc[1] + '?id=' + encodeURIComponent(id), Object.assign({}, opt, {noCache:true}));
-        rcPut(rc[1], id, j);
-        return j;
+        if(hit && hit.id === String(id) && hit.val && Number(hit.val.id) === Number(id)) return expandRound(rc[1], hit.val, opt);
+        const j = await api('/' + rc[1] + '?id=' + encodeURIComponent(id) + '&m=1', Object.assign({}, opt, {noCache:true}));
+        rcPut(rc[1], id, j);          // แบบแบ่งก้อน = เก็บแค่รายการ id (ก้อนอยู่ใน store c)
+        return expandRound(rc[1], j, opt);
       }
     }
     const headers = {};
@@ -492,7 +612,10 @@
     return j;
   }
   async function gzipB64(obj){ return b64e(await pipe(enc.encode(JSON.stringify(obj)), new CompressionStream('gzip'))); }
-  async function gunzipJSON(b64){ return JSON.parse(new TextDecoder().decode(await pipe(b64d(b64), new DecompressionStream('gzip')))); }
+  async function gunzipJSON(b64){
+    if(isChunkStr(b64)) return JSON.parse(await unpackChunks(b64, async d => new TextDecoder().decode(await pipe(b64d(d), new DecompressionStream('gzip')))));
+    return JSON.parse(new TextDecoder().decode(await pipe(b64d(b64), new DecompressionStream('gzip'))));
+  }
   // เปิดเว็บ: ข้อมูลที่ปิดชื่อ/เบอร์แล้ว (ไม่ต้องใช้รหัส)
   async function loadFromApi(){
     if(!apiBase()){ gateOff(); return false; }
@@ -824,7 +947,8 @@
       if(typeof adsRecords !== 'undefined') masked.ads = adsRecords;
       if(typeof productAdsRecords !== 'undefined') masked.productAds = productAdsRecords;
       const adsDays = new Set((masked.ads || []).map(r => r.date)).size;
-      const body = {source:'dashboard', public_gz:await gzipB64(masked), full_enc:await encryptJSON(real, V.key, env.salt, env.iter),
+      // แบบแบ่งก้อน (17 พ.ย. 69): เครื่องอื่นโหลดเฉพาะไฟล์ที่เปลี่ยน
+      const body = {source:'dashboard', public_gz:await packPublic(masked, V.key), full_enc:await encryptChunks(real, V.key, env.salt, env.iter),
         file_count:uploadedFiles.length, order_count:uploadedFiles.reduce((n, f) => n + ((f.leadsRows || []).length), 0)};
       const mb = ((body.public_gz.length + body.full_enc.ct.length) / 1048576).toFixed(1);
       set(label);
@@ -914,7 +1038,8 @@
     // ใช้โดย tools/build.mjs และชุดทดสอบ
     _build:{deriveKey:deriveKey, encryptJSON:encryptJSON, decryptEnv:decryptEnv, maskData:maskData, makeMasker:makeMasker,
       macKeyFor:macKeyFor, sha256:sha256, hmacFactory:hmacFactory, packFiles:packFiles, ITER:ITER,
-      authToken:authToken, gzipB64:gzipB64, gunzipJSON:gunzipJSON, findLeaks:findLeaks, PUBLISH_PART:PUBLISH_PART}
+      authToken:authToken, gzipB64:gzipB64, gunzipJSON:gunzipJSON, findLeaks:findLeaks, PUBLISH_PART:PUBLISH_PART,
+      packPublic:packPublic, encryptChunks:encryptChunks}
   };
 })();
 </script>
