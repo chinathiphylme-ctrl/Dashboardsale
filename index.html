@@ -442,8 +442,42 @@
     }catch(e){ notice('ตั้งรหัสไม่สำเร็จ ❌', e.message); }
   }
 
+  /* จำรอบที่โหลดแล้วไว้ในเครื่อง (17 พ.ย. 69 — ย้ายไป Supabase ฟรีที่ส่งข้อมูลออกได้ 5 GB/เดือน):
+     /public, /full ก้อนละหลาย MB -> ถาม /latest (ต้องใช้รหัส ตอบแค่เลขรอบ) ก่อน ถ้าในเครื่องมีรอบนั้นแล้วใช้เลย ไม่โหลดซ้ำ
+     เก็บรอบล่าสุดอย่างละ 1 ก้อน · /public ปิดชื่อ/เบอร์แล้ว · /full เข้ารหัสอยู่ (ไม่มีรหัสถอดไม่ได้) · เก็บไม่ได้ = โหลดตามปกติ */
+  const RC_RE = /^\/(public|full)(?:\?id=(\d+))?$/;
+  let rcDb = null;
+  function rcOpen(){
+    if(!rcDb) rcDb = new Promise(res => {
+      try{ const q = indexedDB.open('hylme-round-cache', 1);
+        q.onupgradeneeded = () => q.result.createObjectStore('r');
+        q.onsuccess = () => res(q.result); q.onerror = () => res(null); q.onblocked = () => res(null); }
+      catch(e){ res(null); }
+    });
+    return rcDb;
+  }
+  async function rcGet(kind){
+    const db = await rcOpen(); if(!db) return null;
+    return new Promise(res => { try{ const g = db.transaction('r').objectStore('r').get(kind); g.onsuccess = () => res(g.result || null); g.onerror = () => res(null); }catch(e){ res(null); } });
+  }
+  async function rcPut(kind, id, val){
+    const db = await rcOpen(); if(!db) return;
+    try{ db.transaction('r', 'readwrite').objectStore('r').put({id:String(id), val:val}, kind); }catch(e){}
+  }
   async function api(path, opt){
     opt = opt || {};
+    const rc = (!opt.method || opt.method === 'GET') && !opt.noCache ? RC_RE.exec(path) : null;
+    if(rc){
+      let id = rc[2];
+      if(!id){ const l = await api('/latest', Object.assign({}, opt, {noCache:true})); id = l && l.id; }
+      if(id){
+        const hit = await rcGet(rc[1]);
+        if(hit && hit.id === String(id) && hit.val && Number(hit.val.id) === Number(id)) return hit.val;
+        const j = await api('/' + rc[1] + '?id=' + encodeURIComponent(id), Object.assign({}, opt, {noCache:true}));
+        rcPut(rc[1], id, j);
+        return j;
+      }
+    }
     const headers = {};
     if(opt.key) headers.Authorization = 'Bearer ' + await authToken(opt.key);
     else if(opt.session && S.token) headers.Authorization = 'Bearer ' + S.token;
@@ -4199,7 +4233,7 @@ const ORIGINAL_HTML = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
 // ช่องสำหรับ "ฝังข้อมูล" ลงไฟล์ — ปกติเป็น null (เวอร์ชันเปล่า) ปุ่ม bake จะแทนที่บรรทัดนี้ด้วยข้อมูลจริง
 const EMBEDDED_DATA = []; /*__HYLME_EMBED_SLOT__*/
 // ข้อมูลจริง (ชื่อ/เบอร์/ที่อยู่) ที่เข้ารหัสด้วยรหัสผ่าน — null = ไฟล์ต้นฉบับใน private/ (ไม่ได้ปิดชื่อ)
-const HYLME_FULL = {"hylmeEnc":1,"kdf":"PBKDF2-SHA256","iter":600000,"salt":"3rpjT/J7CIsqlHSvGj5JjA==","api":"https://br-lively-glitter-a1m646vu-hylme.compute.c-1.ap-southeast-1.aws.neon.tech/"}; /*__HYLME_FULL_SLOT__*/
+const HYLME_FULL = {"hylmeEnc":1,"kdf":"PBKDF2-SHA256","iter":600000,"salt":"3rpjT/J7CIsqlHSvGj5JjA==","api":"https://dbxjssrswmggkfdlhslc.supabase.co/functions/v1/hylme-dash"}; /*__HYLME_FULL_SLOT__*/
 
 /* ==================== MARKETPLACE: ยอดจริงจากรายงานแพลตฟอร์ม ====================
    รายงานขาย (Excel) ลงยอด marketplace เป็น "เงินที่ผู้ซื้อจ่ายจริง" ตามรายงานของแพลตฟอร์ม
@@ -16276,7 +16310,7 @@ function renderReturnsTable(scoped){
 (function liveUpdate(){
   if(typeof location === 'undefined' || !/^https?:$/.test(location.protocol)) return;
   if(!window.HylmeVault || !HylmeVault.live || !HylmeVault.apiMode()) return;
-  const EVERY = 60 * 1000, RETRY = 15 * 1000, MAX_BACKOFF = 10 * 60 * 1000;
+  const EVERY = 3 * 60 * 1000, RETRY = 15 * 1000, MAX_BACKOFF = 10 * 60 * 1000;   // ทุก 3 นาที (17 พ.ย. 69: ย้ายไป Supabase — ประหยัดโควตา)
   let clean = null, busy = false, timer = null, stopped = false, lastCheck = 0, failures = 0, bar = null, toastTimer = null;
 
   // ลายนิ้วมือของสิ่งที่ผู้ดูแลแก้ในหน้าได้ (ไฟล์ที่อัปโหลด / แก้ไขออเดอร์ / ทะเบียนยกเลิก / ไฟล์ตีคืน) — ต่างจากตอนโหลด = มีของค้าง
