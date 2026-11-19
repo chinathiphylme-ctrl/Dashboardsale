@@ -4085,6 +4085,7 @@ body.page-compare #sideOpenCal, body.page-compare #teamSide .side-picklist{ disp
     </div>
 
     <div class="card" style="margin-bottom:14px;" id="orderEditCard"></div>
+    <div class="card" style="margin-bottom:14px;" id="custLinkCard"></div>
     <div class="card" style="margin-bottom:14px;" id="mcCard">
       <div class="card-head">
         <div><h3>Export ใบปะหน้าส่งของ (MC Template)</h3><div class="card-sub">กรอกข้อมูลออเดอร์ในช่วงที่เลือกอยู่ (รายวัน/รายสัปดาห์/รายเดือนตามแท็บด้านบน — รอบวันนับแบบเที่ยงคืนถึงเที่ยงคืนตามปฏิทิน) ลงในไฟล์ template MC ให้อัตโนมัติ พร้อมอัปโหลดเข้า MyCloud ได้เลยโดยไม่ต้องกรอกเอง — ติ๊กเลือกได้ว่าจะ export ของผู้ดูแลคนไหนบ้าง</div></div>
@@ -10628,7 +10629,7 @@ function recomputeDataset(options = {}){
     const phoneOf = new Map(), cidPhone = new Map();
     identityHistoryLeads.forEach(r => {
       const id = r['Lead ID'];
-      const ph = leadPhone(r, contactAccountByLead.get(id));
+      const ph = custLinkMain(CUSTOMER_LINKS, leadPhone(r, contactAccountByLead.get(id)));   // ลูกค้าหลายเบอร์ (19 พ.ย. 69): เบอร์อื่น -> เบอร์หลัก ก่อนผูก GoSell id และคีย์
       if(ph) phoneOf.set(id, ph);
       const cid = String(r['GoSell Customer ID'] || '').trim();
       if(cid && ph && !cidPhone.has(cid)) cidPhone.set(cid, ph);
@@ -13725,6 +13726,105 @@ function oeBindNoCust(host){
     oeNoCustCommit(list => list.splice(+b.dataset.ncdel, 1), { action:'nocust-del', phone:x.phone, reason:'เอาออกจากรายการ' });
   });
 }
+/* ==================== หลังบ้าน: ลูกค้าคนเดียวที่ใช้หลายเบอร์ (owner 19 พ.ย. 69) ==================== */
+function clLeadsOf(phone){
+  const p = normPhoneDigits(phone), D = DATA;
+  if(!p || !D) return [];
+  return (D.historyLeads || []).filter(l => leadPhone(l, D.contactAccountByLead && D.contactAccountByLead.get(l['Lead ID'])) === p);
+}
+function clStat(phone){ const ls = clLeadsOf(phone); return { n:ls.length, amt:ls.reduce((s, l) => s + withVat(l['Lead Value']), 0), name:(ls.map(l => String(l['Lead Name'] || '').trim()).filter(n => n && !isMaskedText(n)).pop() || '') }; }
+function clSuggestRows(){
+  const D = DATA; if(!D) return [];
+  return (D.historyLeads || []).map(l => {
+    const ca = D.contactAccountByLead && D.contactAccountByLead.get(l['Lead ID']), acc = ca && ca.account;
+    const z = acc && acc['Zipcode'] && String(acc['Zipcode']).trim() !== '-' ? String(acc['Zipcode']).trim() : (findZipInText(buildAddress(acc)) || '');
+    return { name:l['Lead Name'], ph:leadPhone(l, ca), zip:z };
+  });
+}
+let clMsg = '';
+async function clCommit(change, okText){
+  if(HylmeVault.isLocked() && !(await HylmeVault.promptUnlock('ใส่รหัสผ่านเพื่อรวมเบอร์ลูกค้าและบันทึกขึ้น Database'))) return;
+  const at = new Date().toISOString();
+  const r = change(CUSTOMER_LINKS || { links:{}, log:[] }, at);
+  if(!r) return;
+  CUSTOMER_LINKS = r;
+  clMsg = okText;
+  oeRecompute();
+  renderCustLinkCard();
+  if(!HylmeVault.apiMode()){ HylmeVault.notice('แก้ในหน้านี้แล้ว', 'หน้านี้ไม่ได้ต่อ database — การรวมเบอร์อยู่แค่ในหน้านี้'); return; }
+  await HylmeVault.publishFromPage();
+}
+const CL_ERR = { 'bad-phone':'เบอร์ไม่ถูกต้อง (9–10 หลัก เช่น 0812345678)', same:'เบอร์หลักกับเบอร์อื่นเป็นเบอร์เดียวกัน', loop:'รวมแบบนี้จะวนกลับมาที่เดิม (เบอร์นี้เป็นเบอร์หลักของอีกเบอร์อยู่แล้ว)' };
+function renderCustLinkCard(){
+  const host = document.getElementById('custLinkCard'); if(!host) return;
+  const locked = HylmeVault.isLocked(), links = (CUSTOMER_LINKS && CUSTOMER_LINKS.links) || {};
+  const head = '<div class="card-title">ลูกค้าคนเดียวที่ใช้หลายเบอร์</div>'
+    + '<div class="card-sub">เช่น สมัครสมาชิกด้วยเบอร์ตัวเอง แต่สั่งของด้วยเบอร์แม่บ้าน — รวมแล้วนับเป็นลูกค้าคนเดียว (ย้อนหลังทั้งหมด) ทั้งแดชบอร์ดและ CRM · เบอร์ของออเดอร์ (ส่งของ / MC export) ไม่เปลี่ยน · ยอดขายไม่เปลี่ยน</div>';
+  if(locked){ host.innerHTML = head + '<div class="card-sub" style="margin-top:8px;">ใส่รหัสผ่าน admin เพื่อดูและแก้รายการ (มีเบอร์จริงของลูกค้า)</div>'; return; }
+  const rowsHtml = Object.keys(links).sort((a, b) => String(links[b].at || '').localeCompare(String(links[a].at || ''))).map(o => {
+    const x = links[o];
+    return '<tr><td>' + oeEsc(o) + '</td><td>→ <b>' + oeEsc(x.main) + '</b></td><td>' + oeEsc(x.note || '') + '</td><td>' + oeEsc(String(x.at || '').slice(0, 10)) + '</td>'
+      + '<td><button class="btn" data-clrm="' + oeEsc(o) + '">ยกเลิก</button></td></tr>';
+  }).join('');
+  const sug = custLinkSuggest(clSuggestRows(), CUSTOMER_LINKS);
+  const sugHtml = sug.map((g, i) => '<tr><td>' + oeEsc(g.name) + '</td><td>' + oeEsc(g.zip) + '</td><td>'
+    + g.phones.map((p, j) => '<label style="white-space:nowrap;margin-right:10px;"><input type="radio" name="clsg' + i + '" value="' + oeEsc(p.phone) + '"' + (j === 0 ? ' checked' : '') + '> ' + oeEsc(p.phone) + ' (' + p.orders + ')</label>').join('')
+    + '</td><td><button class="btn" data-clsg="' + i + '">รวม</button></td></tr>').join('');
+  host.innerHTML = head
+    + (clMsg ? '<div class="card-sub" style="margin-top:6px;color:var(--good,#2f6b47);">' + oeEsc(clMsg) + '</div>' : '')
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;">'
+    + '<input id="clMain" inputmode="tel" placeholder="เบอร์หลัก (เช่น เบอร์สมาชิก)" style="max-width:200px;">'
+    + '<input id="clOther" inputmode="tel" placeholder="เบอร์อื่นของคนเดียวกัน" style="max-width:200px;">'
+    + '<input id="clNote" placeholder="หมายเหตุ เช่น เบอร์แม่บ้าน" style="max-width:220px;">'
+    + '<button class="btn" id="clAdd">รวม + ส่งขึ้น Database</button></div>'
+    + '<div class="card-sub" id="clPrev" style="margin-top:6px;"></div>'
+    + '<details style="margin-top:8px;"><summary>วางหลายคู่ทีเดียว</summary><div class="card-sub">บรรทัดละคู่: เบอร์หลัก,เบอร์อื่น (คั่นด้วยจุลภาค เว้นวรรค หรือแท็บ) · บรรทัดที่ผิดจะถูกข้ามและแจ้งให้ดู</div>'
+    + '<textarea id="clBulk" rows="5" style="width:100%;max-width:520px;" placeholder="0948246365,0901101556"></textarea><br><button class="btn" id="clBulkAdd">รวมทั้งหมด + ส่งขึ้น Database</button></details>'
+    + (rowsHtml ? '<table class="order-table" style="margin-top:10px;"><thead><tr><th>เบอร์อื่น</th><th>เบอร์หลัก</th><th>หมายเหตุ</th><th>รวมเมื่อ</th><th></th></tr></thead><tbody>' + rowsHtml + '</tbody></table>' : '<div class="card-sub" style="margin-top:8px;">ยังไม่มีการรวมเบอร์</div>')
+    + (sugHtml ? '<div class="card-title" style="margin-top:14px;font-size:14px;">น่าจะเป็นคนเดียวกัน (ชื่อ + รหัสไปรษณีย์ตรงกัน) — เลือกเบอร์หลักแล้วกดรวม</div>'
+      + '<table class="order-table" style="margin-top:6px;"><thead><tr><th>ชื่อ</th><th>รหัสไปรษณีย์</th><th>เบอร์ (ครั้งที่ซื้อ) · ● = เบอร์หลัก</th><th></th></tr></thead><tbody>' + sugHtml + '</tbody></table>' : '');
+  const prev = () => {
+    const m = document.getElementById('clMain').value, o = document.getElementById('clOther').value, el = document.getElementById('clPrev');
+    if(!isThaiPhone(normPhoneDigits(m)) || !isThaiPhone(normPhoneDigits(o))){ el.textContent = ''; return; }
+    const a = clStat(m), b = clStat(o);
+    el.textContent = 'เบอร์หลัก ' + normPhoneDigits(m) + (a.name ? ' (' + a.name + ')' : '') + ': ' + a.n + ' ครั้ง ' + fmtBaht(a.amt)
+      + ' · เบอร์อื่น ' + normPhoneDigits(o) + (b.name ? ' (' + b.name + ')' : '') + ': ' + b.n + ' ครั้ง ' + fmtBaht(b.amt)
+      + ' · รวมแล้ว: ' + (a.n + b.n) + ' ครั้ง ' + fmtBaht(a.amt + b.amt);
+  };
+  ['clMain', 'clOther'].forEach(id => { document.getElementById(id).oninput = prev; });
+  document.getElementById('clAdd').onclick = () => {
+    const m = document.getElementById('clMain').value, o = document.getElementById('clOther').value, note = document.getElementById('clNote').value.trim();
+    const t = custLinkAdd(CUSTOMER_LINKS, o, m, note, new Date().toISOString());
+    if(!t.ok){ HylmeVault.notice('รวมเบอร์ไม่ได้', CL_ERR[t.error] || t.error); return; }
+    clCommit((cl, at) => custLinkAdd(cl, o, m, note, at).cl, 'รวม ' + normPhoneDigits(o) + ' → ' + normPhoneDigits(m) + ' แล้ว');
+  };
+  document.getElementById('clBulkAdd').onclick = () => {
+    const lines = document.getElementById('clBulk').value.split(/\r?\n/).map(s => s.trim()).filter(Boolean), skipped = [];
+    clCommit((cl, at) => {
+      let cur = cl, n = 0;
+      lines.forEach(line => {
+        const ps = line.split(/[\s,;\t]+/).filter(Boolean);
+        const r = ps.length >= 2 ? custLinkAdd(cur, ps[1], ps[0], 'วางหลายคู่', at) : { ok:false, error:'bad-phone' };
+        if(r.ok){ cur = r.cl; n++; } else skipped.push(line + ' — ' + (CL_ERR[r.error] || r.error));
+      });
+      if(skipped.length) HylmeVault.notice('ข้ามบางบรรทัด', skipped.join('\n'));
+      return n ? cur : null;
+    }, 'รวมจากที่วางไว้แล้ว');
+  };
+  host.querySelectorAll('[data-clrm]').forEach(b => b.onclick = () => {
+    const o = b.dataset.clrm;
+    clCommit((cl, at) => custLinkRemove(cl, o, at), 'ยกเลิกการรวม ' + o + ' แล้ว');
+  });
+  host.querySelectorAll('[data-clsg]').forEach(b => b.onclick = () => {
+    const g = sug[+b.dataset.clsg]; if(!g) return;
+    const sel = host.querySelector('input[name="clsg' + b.dataset.clsg + '"]:checked'), main = sel ? sel.value : g.phones[0].phone;
+    clCommit((cl, at) => {
+      let cur = cl;
+      g.phones.forEach(p => { if(p.phone !== main){ const r = custLinkAdd(cur, p.phone, main, 'ชื่อ + รหัสไปรษณีย์ตรงกัน', at); if(r.ok) cur = r.cl; } });
+      return cur;
+    }, 'รวม ' + g.name + ' เป็นคนเดียวกันแล้ว (เบอร์หลัก ' + main + ')');
+  });
+}
 function renderOrderEditCard(){
   const host = document.getElementById('orderEditCard'); if(!host) return;
   const edits = Object.entries((ORDER_EDITS && ORDER_EDITS.edits) || {}).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)));
@@ -14019,7 +14119,7 @@ function renderBackendCards(force){
   const body = document.getElementById('backendBody');
   if(!force && body && body.classList.contains('collapsed')){ backendDirty = true; return; }
   backendDirty = false;
-  renderCancelCard(); cxlRender(); renderOrderEditCard(); renderReportCard(); renderMcCard(); renderContactCard(); renderPosCard(); renderRangeExport(); renderPointCard(); renderShipCheck();
+  renderCancelCard(); cxlRender(); renderOrderEditCard(); renderCustLinkCard(); renderReportCard(); renderMcCard(); renderContactCard(); renderPosCard(); renderRangeExport(); renderPointCard(); renderShipCheck();
 }
 
 // ---- การ์ดสรุปยอดขายส่งทีม: ปุ่มคัดลอก + ช่อง Focus Set (จำค่าไว้ในเบราว์เซอร์เครื่องนี้) ----
