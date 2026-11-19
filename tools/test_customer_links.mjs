@@ -68,5 +68,10 @@ if (/function custLinkSuggest/.test(html)) {
   has(/function buildCustomerIdentity\(\)\{[\s\S]{0,700}custLinkMain\(CUSTOMER_LINKS/, 'identity maps phones to the main phone');
   has(/id="custLinkCard"/, 'backend panel host');
 }
+// review fixes
+const sync = readFileSync(new URL('./pancake_sync.mjs', import.meta.url), 'utf8');
+ok(/realOut\.customerLinks = real\.customerLinks/.test(sync) && /masked\.customerLinks = pub\.customerLinks/.test(sync), 'Pancake sync keeps the links in both parts (it saves every 30 min)');
+has(/function topSpenderRowsForAllTimeRaw\(\)\{[\s\S]{0,600}custLinkMain\(CUSTOMER_LINKS, leadPhone\(lead, info\)\)/, 'Top Spenders: one row per linked person');
+has(/function buildContactRows\([\s\S]{0,900}custLinkMain\(CUSTOMER_LINKS, phone\)/, 'contact rows (monthly list / export): one row per linked person');
 console.log(bad ? `${bad} FAILED` : 'all passed');
 process.exit(bad ? 1 : 0);

@@ -9015,7 +9015,7 @@ function buildContactRows(leads, products, contactAccountByLead){
     const contact = info.contact, account = info.account;
     const phone = cleanPhone(contact && contact['Phone'], account);
     const name = buildRecipientName(lead, contact) || String(lead['Lead Name'] || '').trim();
-    const key = phone || ('LEAD-' + id);
+    const key = (phone ? custLinkMain(CUSTOMER_LINKS, phone) : '') || ('LEAD-' + id);   // ลูกค้าหลายเบอร์ (19 พ.ย. 69)
     let c = byCustomer.get(key);
     if(!c){
       c = { key, phone, name:'', address:'', orders:0, amount:0, first:lead.__date, last:lead.__date,
@@ -9217,7 +9217,7 @@ function clBuildRows(leads, products, contactAccountByLead, mode){
     const info = (contactAccountByLead && contactAccountByLead.get(id)) || {};
     const phone = cleanPhone(info.contact && info.contact['Phone'], info.account);
     const nm = nameOf(lead, info.contact);
-    const key = phone || ('LEAD-' + id);
+    const key = (phone ? custLinkMain(CUSTOMER_LINKS, phone) : '') || ('LEAD-' + id);   // ลูกค้าหลายเบอร์ (19 พ.ย. 69)
     let c = byCustomer.get(key);
     if(!c){ c = { name:'', phone, products:[], last:lead.__date, orders:0, amount:0, masked:false }; byCustomer.set(key, c); }
     const masked = isMaskedText(nm);
@@ -9415,7 +9415,7 @@ function topSpenderRowsForAllTimeRaw(){
   const sorted = leads.slice().sort((a,b) => String(a.__date || '').localeCompare(String(b.__date || '')));
   sorted.forEach(lead => {
     const info = (DATA.contactAccountByLead && DATA.contactAccountByLead.get(lead['Lead ID'])) || {};
-    const phone = leadPhone(lead, info);
+    const phone = custLinkMain(CUSTOMER_LINKS, leadPhone(lead, info));   // ลูกค้าหลายเบอร์ (19 พ.ย. 69): แถวเดียวต่อคน
     if(!phone){ excludedOrders++; return; }
     const name = buildRecipientName(lead, info.contact);
     let c = customers.get(phone);
