@@ -370,7 +370,7 @@
       }
       return out;
     }
-    return {walk:root => { learnNames(root); return walk(root); }, fakes:() => new Set(tailCache.values())};
+    return {walk:root => { learnNames(root); return walk(root); }, fakes:() => new Set(tailCache.values()), phone:maskPhone};
   }
   async function macKeyFor(key){
     const raw = new Uint8Array(await crypto.subtle.exportKey('raw', key));
@@ -391,6 +391,7 @@
     html = fillSlot(html, 'let RETURN_REVIEW_DECISIONS', '__RR_DECISIONS_SLOT__', parts.returnDecisions);
     html = fillSlot(html, 'let RETURN_REVIEW_ADDITIONS', '__RR_ADDITIONS_SLOT__', parts.returnAdditions);
     if(parts.orderEdits !== undefined) html = fillSlot(html, 'let ORDER_EDITS', '__ORDER_EDITS_SLOT__', parts.orderEdits || {edits:{}, log:[]});
+    if(parts.customerLinks !== undefined) html = fillSlot(html, 'let CUSTOMER_LINKS', '__CUSTOMER_LINKS_SLOT__', parts.customerLinks || {links:{}, log:[]});
     return fillSlot(html, 'const HYLME_FULL', '__HYLME_FULL_SLOT__', parts.full);
   }
 
@@ -638,6 +639,7 @@
       if(pub.returnDecisions) RETURN_REVIEW_DECISIONS = pub.returnDecisions;
       if(pub.returnAdditions) RETURN_REVIEW_ADDITIONS = pub.returnAdditions;
       if(pub.orderEdits && typeof ORDER_EDITS !== 'undefined') ORDER_EDITS = pub.orderEdits;
+      if(pub.customerLinks && typeof CUSTOMER_LINKS !== 'undefined') CUSTOMER_LINKS = pub.customerLinks;
       if(pub.returns && typeof RETURNS_DATA !== 'undefined') RETURNS_DATA = pub.returns;     // หน้า "ตีคืน MC" (ปิดชื่อ/เบอร์แล้ว)
       // ต้นทุน Ads ที่บันทึกมากับรอบนี้ (ไม่มีข้อมูลลูกค้า) — รวมกับชุดในหน้าเว็บ/เครื่องนี้ แถวที่นำเข้าทีหลังชนะ
       if(Array.isArray(pub.ads) && typeof adsMerge === 'function') adsRecords = adsMerge(adsRecords, pub.ads.filter(adsValid));
@@ -668,6 +670,7 @@
     RETURN_REVIEW_DECISIONS = full.returnDecisions;
     RETURN_REVIEW_ADDITIONS = full.returnAdditions;
     if(full.orderEdits && typeof ORDER_EDITS !== 'undefined') ORDER_EDITS = full.orderEdits;
+    if(full.customerLinks && typeof CUSTOMER_LINKS !== 'undefined') CUSTOMER_LINKS = full.customerLinks;
     if(full.returns && typeof RETURNS_DATA !== 'undefined') RETURNS_DATA = full.returns;
     uploadedFiles = files;
     V.key = key; V.unlocked = true;
@@ -941,8 +944,11 @@
       const masked = await maskChecked(base);
       if(!masked) return;
       // การแก้ไขออเดอร์: ข้อมูลจริงเก็บพร้อมเหตุผล · ส่วนที่ทุกคนเห็นไม่มีเหตุผล (อาจมีชื่อลูกค้า)
-      const real = (typeof ORDER_EDITS !== 'undefined') ? Object.assign({}, base, {orderEdits:ORDER_EDITS}) : base;
+      const real = (typeof ORDER_EDITS !== 'undefined') ? Object.assign({}, base, {orderEdits:ORDER_EDITS}) : Object.assign({}, base);
+      // ลูกค้าหลายเบอร์ (19 พ.ย. 69): ข้อมูลจริงไปกับส่วนเข้ารหัส · ส่วนที่ทุกคนเห็นปิดเบอร์ด้วยตัวปิดเบอร์ชุดเดียวกับไฟล์ (คีย์เป็นเบอร์ จึงไม่ผ่าน maskChecked)
+      if(typeof CUSTOMER_LINKS !== 'undefined' && CUSTOMER_LINKS) Object.assign(real, {customerLinks:CUSTOMER_LINKS});
       if(typeof orderEditsPublic === 'function') masked.orderEdits = orderEditsPublic();
+      if(typeof custLinksPublic === 'function' && typeof CUSTOMER_LINKS !== 'undefined' && CUSTOMER_LINKS) masked.customerLinks = custLinksPublic(CUSTOMER_LINKS, makeMasker(await macKeyFor(V.key)).phone);
       // ต้นทุน Ads (MKT cost / Ads รายสินค้า) ไปกับรอบนี้ด้วย — เดิมอยู่แค่ในเบราว์เซอร์ของคนที่นำเข้า คนอื่นไม่เห็น
       if(typeof adsRecords !== 'undefined') masked.ads = adsRecords;
       if(typeof productAdsRecords !== 'undefined') masked.productAds = productAdsRecords;
@@ -1008,6 +1014,7 @@
     if(pub.returnDecisions) RETURN_REVIEW_DECISIONS = pub.returnDecisions;
     if(pub.returnAdditions) RETURN_REVIEW_ADDITIONS = pub.returnAdditions;
     if(pub.orderEdits && typeof ORDER_EDITS !== 'undefined') ORDER_EDITS = pub.orderEdits;
+    if(pub.customerLinks && typeof CUSTOMER_LINKS !== 'undefined') CUSTOMER_LINKS = pub.customerLinks;
     if(pub.returns && typeof RETURNS_DATA !== 'undefined') RETURNS_DATA = pub.returns;
     if(Array.isArray(pub.ads) && typeof adsMerge === 'function') adsRecords = adsMerge(adsRecords, pub.ads.filter(adsValid));
     if(Array.isArray(pub.productAds) && typeof prodAdsMerge === 'function') productAdsRecords = prodAdsMerge(productAdsRecords, pub.productAds.filter(prodAdsValid));
@@ -1015,6 +1022,7 @@
       RETURN_REVIEW_DECISIONS = full.returnDecisions;
       RETURN_REVIEW_ADDITIONS = full.returnAdditions;
       if(full.orderEdits && typeof ORDER_EDITS !== 'undefined') ORDER_EDITS = full.orderEdits;
+      if(full.customerLinks && typeof CUSTOMER_LINKS !== 'undefined') CUSTOMER_LINKS = full.customerLinks;
       if(full.returns && typeof RETURNS_DATA !== 'undefined') RETURNS_DATA = full.returns;
       uploadedFiles = full.files;
     }
@@ -6766,6 +6774,73 @@ function oeAmtApply(leads, products){
   return products;
 }
 function oeNoCust(){ const a = ORDER_EDITS && ORDER_EDITS.noCust; return Array.isArray(a) ? a : []; }
+/* CUSTOMER LINKS START */
+/* ==================== ลูกค้าคนเดียวที่ใช้หลายเบอร์ (owner 19 พ.ย. 69) ====================
+   เช่น สมัครสมาชิกด้วยเบอร์หนึ่ง แต่สั่งของด้วยเบอร์แม่บ้าน -> เดิมนับเป็นลูกค้าคนละคน (ลูกค้าใหม่ 2 คน ซื้อซ้ำหาย)
+   CUSTOMER_LINKS.links[เบอร์อื่น] = {main:เบอร์หลัก, note, at} · log = ประวัติ link / unlink ทุกครั้ง
+   ใช้แค่ตอนระบุตัวลูกค้า (buildCustomerIdentity + CRM V3) — เบอร์ของออเดอร์ (ส่งของ / MC export / ตีคืน) ไม่เปลี่ยน
+   นับย้อนหลังทั้งหมด (owner: แบบ A) · เบอร์หลักเป็นเบอร์อื่นไม่ได้: link B->C ตอนมี A->B = เก็บ A->C และ B->C
+   ข้อมูลจริงไปกับส่วนเข้ารหัสของรอบ · ส่วนที่พนักงานเห็นได้คู่เดียวกันแต่ปิดเบอร์ด้วยตัวปิดเบอร์ชุดเดียวกับไฟล์ */
+let CUSTOMER_LINKS = {"links":{},"log":[]}; /*__CUSTOMER_LINKS_SLOT__*/
+function custLinkMain(cl, phone){
+  const p = normPhoneDigits(phone), l = cl && cl.links;
+  const x = l && p ? l[p] : null;
+  return x && x.main ? x.main : p;
+}
+function custLinkAdd(cl, other, main, note, at){
+  const o = normPhoneDigits(other), m0 = normPhoneDigits(main);
+  if(!isThaiPhone(o) || !isThaiPhone(m0)) return { ok:false, cl, error:'bad-phone' };
+  if(o === m0) return { ok:false, cl, error:'same' };
+  const links = Object.assign({}, (cl && cl.links) || {}), log = ((cl && cl.log) || []).slice();
+  const m = links[m0] && links[m0].main ? links[m0].main : m0;          // main is itself linked -> its main
+  if(m === o) return { ok:false, cl, error:'loop' };
+  links[o] = { main:m, note:String(note || '').slice(0, 120), at };
+  Object.keys(links).forEach(k => { if(links[k].main === o) links[k] = Object.assign({}, links[k], { main:m }); });   // X->other now X->main
+  log.push({ other:o, main:m, action:'link', at });
+  return { ok:true, cl:{ links, log } };
+}
+function custLinkRemove(cl, other, at){
+  const o = normPhoneDigits(other), links = Object.assign({}, (cl && cl.links) || {}), log = ((cl && cl.log) || []).slice();
+  const was = links[o];
+  if(!was) return { links, log };
+  delete links[o];
+  log.push({ other:o, main:was.main, action:'unlink', at });
+  return { links, log };
+}
+function custLinksPublic(cl, maskFn){
+  const links = {}, src = (cl && cl.links) || {};
+  Object.keys(src).forEach(k => { links[maskFn(k)] = { main:maskFn(src[k].main), at:src[k].at || null }; });
+  const log = ((cl && cl.log) || []).map(x => ({ other:maskFn(x.other), main:maskFn(x.main), action:x.action, at:x.at || null }));
+  return { links, log };
+}
+/* ชื่อเดียวกัน (ตัดคำนำหน้า/วรรค) + รหัสไปรษณีย์เดียวกัน แต่คนละเบอร์ -> เสนอให้เจ้าของยืนยัน (ไม่รวมเอง)
+   rows = [{name, ph, zip}] หนึ่งแถวต่อออเดอร์ · เบอร์ที่ซื้อมากสุดอยู่ก่อน (ค่าเริ่มต้นของเบอร์หลัก) · สูงสุด 50 กลุ่ม */
+function custLinkNameKey(s){
+  s = String(s || '').trim();
+  if(!s || /\*/.test(s)) return '';
+  s = s.replace(/^(คุณ|ค\.|นาย|นางสาว|น\.ส\.|นส\.|นาง|ด\.ช\.|ด\.ญ\.|mr\.?|mrs\.?|ms\.?|miss)\s*/i, '').replace(/\(.*?\)/g, '');
+  return s.replace(/[\s​.\-_/]+/g, '').toLowerCase();
+}
+function custLinkSuggest(rows, cl){
+  const groups = new Map();
+  (rows || []).forEach(r => {
+    const n = custLinkNameKey(r.name), ph = normPhoneDigits(r.ph), z = String(r.zip || '').trim();
+    if(n.length < 6 || !isThaiPhone(ph) || !/^\d{5}$/.test(z)) return;
+    const k = n + '|' + z;
+    let g = groups.get(k);
+    if(!g){ g = { key:k, name:String(r.name || '').trim(), zip:z, phones:new Map() }; groups.set(k, g); }
+    g.phones.set(ph, (g.phones.get(ph) || 0) + 1);
+  });
+  const out = [];
+  groups.forEach(g => {
+    const mains = new Set([...g.phones.keys()].map(p => custLinkMain(cl, p)));
+    if(mains.size < 2) return;                                   // one phone, or already linked together
+    const phones = [...g.phones.entries()].map(([phone, orders]) => ({ phone, orders })).sort((a, b) => b.orders - a.orders || a.phone.localeCompare(b.phone));
+    out.push({ key:g.key, name:g.name, zip:g.zip, phones, total:phones.reduce((s, p) => s + p.orders, 0) });
+  });
+  return out.sort((a, b) => b.total - a.total).slice(0, 50);
+}
+/* CUSTOMER LINKS END */
 function oeLeadsWithPhone(phone){
   const p = normPhoneDigits(phone);
   return p ? (DATA && DATA.transactionLeads || []).filter(l => leadPhone(l) === p) : [];
@@ -16562,7 +16637,8 @@ function renderReturnsTable(scoped){
       const oe = typeof ORDER_EDITS !== 'undefined' && ORDER_EDITS ? (ORDER_EDITS.log || []).length + ':' + Object.keys(ORDER_EDITS.edits || {}).length : '';
       const ra = typeof RETURN_REVIEW_ADDITIONS !== 'undefined' && RETURN_REVIEW_ADDITIONS ? RETURN_REVIEW_ADDITIONS.length : 0;
       const rd = typeof RETURNS_DATA !== 'undefined' && RETURNS_DATA ? [RETURNS_DATA.file, RETURNS_DATA.at, RETURNS_DATA.saved ? 1 : 0, (RETURNS_DATA.rows || []).length].join('|') : '';
-      return [files, oe, ra, rd].join('#');
+      const cl = typeof CUSTOMER_LINKS !== 'undefined' && CUSTOMER_LINKS ? (CUSTOMER_LINKS.log || []).length + ':' + Object.keys(CUSTOMER_LINKS.links || {}).length : '';
+      return [files, oe, ra, rd, cl].join('#');
     }catch(e){ return 'x' + Math.random(); }
   }
   // พนักงาน (ยังไม่ปลดล็อก) แก้ข้อมูลในหน้าไม่ได้ -> ไม่มีของค้างเสมอ
