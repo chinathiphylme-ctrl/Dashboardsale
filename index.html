@@ -3900,6 +3900,7 @@ body.page-compare #sideOpenCal, body.page-compare #teamSide .side-picklist{ disp
           <button data-metric="newCustomers" style="padding:6px 11px; font-size:12px;">ลูกค้าใหม่</button>
           <button data-metric="sales" style="padding:6px 11px; font-size:12px;">ยอดขาย</button>
           <button data-metric="pct" style="padding:6px 11px; font-size:12px;">% ของยอดรวม</button>
+          <button data-metric="line" style="padding:6px 11px; font-size:12px;">% ซื้อทาง LINE</button>
         </div>
       </div>
       <div class="trend-chart" id="retChart"></div>
@@ -8000,6 +8001,23 @@ function channelLabel(lead){
   if(TELESALES_PEOPLE.has(person)) return TELESALES_CH_LABEL;
   return canonChannelLabel(parseChannel(lead['Lead Intro']));
 }
+/* ลูกค้าเก่าซื้อผ่านช่องทางไหน (เจ้าของ 20 พ.ย. 69: อยากให้ลูกค้าเก่ากลับมาซื้อทาง LINE แทน Facebook ที่มีค่าแอด)
+   LINE = CRM (LINE) · Facebook = ทุกเพจ + Instagram · Telesales · อื่น ๆ = Marketplace / Website / ไม่ระบุ
+   (ก่อน ก.ค. 69 ช่องทางบันทึกไม่ครบ — ครึ่งหนึ่งเป็น "ไม่ระบุช่องทาง" หรือ "CRM" แบบเก่า จึงตกไปอยู่ อื่น ๆ) */
+const RET_CH_GROUPS = ['LINE','Facebook','Telesales','อื่น ๆ'];
+function retChGroup(lead){
+  const ch = channelLabel(lead);
+  if(ch === CRM_CH_LABEL) return 'LINE';
+  if(/^Facebook/.test(ch) || ch === 'Instagram') return 'Facebook';
+  if(ch === TELESALES_CH_LABEL) return 'Telesales';
+  return 'อื่น ๆ';
+}
+function retByCh(list){
+  const out = {}; RET_CH_GROUPS.forEach(g => { out[g] = {orders:0, sales:0}; });
+  list.forEach(r => { const a = out[retChGroup(r)]; a.orders += 1; a.sales += withVat(r['Lead Value']); });
+  RET_CH_GROUPS.forEach(g => { out[g].sales = Math.round(out[g].sales*100)/100; });
+  return out;
+}
 
 /* ==================== ทีมงาน 3 ทีม (ตัวกรองหลักของแดชบอร์ด - แบบ Looker) ====================
    1) Admin      ดูแล Facebook Hylme / ผิว / นอน / ไขมัน + Instagram
@@ -11000,6 +11018,7 @@ function recomputeDataset(options = {}){
       newOrders: newOrdersArr.length,
       newSales: Math.round(newSalesV*100)/100,
       unknownOrders, unknownSales: Math.round(unknownSales*100)/100,
+      byCh: retByCh(retOrders),
       list: Array.from(retAgg.values())
         .sort((a,b) => b.sales - a.sales || b.orders - a.orders)
         .map(a => ({ ...a, sales: Math.round(a.sales*100)/100 })),
@@ -13371,7 +13390,16 @@ function fallbackCopy(txt, done){
    จึงเปลี่ยนตาม Date Filter / ตัวกรองทีม เหมือนการ์ดอื่นโดยอัตโนมัติ                          */
 const retPctTxt = v => (v == null ? '—' : (v*100).toFixed(1) + '%');
 const retSafe   = p => (p && p.returning) ? p.returning
-  : { customers:0, orders:0, sales:0, pct:null, aov:0, newCustomers:0, newOrders:0, newSales:0, unknownOrders:0, unknownSales:0, list:[] };
+  : { customers:0, orders:0, sales:0, pct:null, aov:0, newCustomers:0, newOrders:0, newSales:0, unknownOrders:0, unknownSales:0, list:[], byCh:{} };
+/* % ของออเดอร์ลูกค้าเก่าที่ซื้อทาง LINE (null = ไม่มีออเดอร์ลูกค้าเก่า) */
+/* null เมื่อไม่มีออเดอร์ลูกค้าเก่า หรือช่องทางส่วนใหญ่ไม่ได้บันทึก ("อื่น ๆ" เกินครึ่ง — ข้อมูลก่อน มิ.ย. 69) -> แสดง — */
+const retLinePct = p => { const r = retSafe(p), b = r.byCh || {}, l = b.LINE || {orders:0}, o = b['อื่น ๆ'] || {orders:0};
+  return (!r.orders || o.orders * 2 > r.orders) ? null : l.orders / r.orders; };
+function retChLine(r){
+  const b = r.byCh || {}; if(!r.orders) return '';
+  return '<br><b>ลูกค้าเก่าซื้อผ่าน</b> ' + RET_CH_GROUPS.filter(g => b[g] && b[g].orders).map(g =>
+    `${g === 'LINE' ? '<b style="color:var(--good)">LINE</b>' : g} ${fmtNum(b[g].orders)} ออเดอร์ (${retPctTxt(b[g].orders / r.orders)})`).join(' • ');
+}
 
 /* แถวที่จะเอามาทำกราฟ/ตาราง — เลือกได้ 4 แบบจากปุ่มบนหัวการ์ด (3 แบบรายวัน + รายเดือน)
    หมายเหตุ: KPI / สรุป / Validation ยึด "ช่วงที่เลือก" ของแดชบอร์ดเสมอ ปุ่มนี้เปลี่ยนเฉพาะ
@@ -13418,6 +13446,12 @@ const retScopeLabel = () => retDayScope === 'all' ? 'ทุกวันในข
 
 // ตัวชี้วัดของกราฟ — รวม 3 กราฟเดิมไว้ในกราฟเดียว สลับด้วยปุ่ม (ใช้ได้ทั้งมุมมองวันและเดือน)
 const RET_METRICS = {
+  line: {
+    sub: u => `% ของออเดอร์ลูกค้าเก่าที่ซื้อทาง LINE ในแต่ละ${u} — ยิ่งสูงยิ่งดี (ไม่เสียค่าแอด Facebook) • ก่อน ก.ค. 69 ช่องทางบันทึกไม่ครบ`,
+    val: d => retLinePct(d) || 0,
+    fmt: v => retPctTxt(v),
+    tip: d => { const b = retSafe(d).byCh || {}; return RET_CH_GROUPS.map(g => `${g} ${fmtNum((b[g]||{}).orders||0)}`).join(' • ') + ' ออเดอร์'; },
+  },
   customers: {
     sub: u => `จำนวนลูกค้าเก่าที่กลับมาซื้อในแต่ละ${u} — นับแบบไม่ซ้ำคนภายใน${u}เดียวกัน`,
     val: d => retSafe(d).customers,
@@ -13507,6 +13541,7 @@ function renderReturnCard(){
       `<b>ลูกค้าเก่า</b> ${fmtNum(R.customers)} คน • ${fmtNum(R.orders)} ออเดอร์ • ${fmtBahtFull(R.sales)} `
     + `(<b>${retPctTxt(R.pct)}</b> ของยอดขายรวม ${fmtBahtFull(p.sales)}) • เฉลี่ย ${fmtBaht(R.aov)}/ออเดอร์<br>`
     + `<b>ลูกค้าใหม่</b> ${fmtNum(R.newCustomers)} คน • ${fmtNum(R.newOrders)} ออเดอร์ • ${fmtBahtFull(R.newSales)}`
+    + retChLine(R)
     + (R.unknownOrders
         ? `<br><span style="color:var(--warning,#c98a00)">⚠️ ในช่วงนี้มี ${fmtNum(R.unknownOrders)} ออเดอร์ (${fmtBahtFull(R.unknownSales)}) ที่ระบุตัวลูกค้าไม่ได้ `
           + `— Shopee/Lazada/TikTok ปิดบังเบอร์โทร และ MyCloud ไม่มีเบอร์ — ถูกนับรวมเป็นลูกค้าใหม่ ตัวเลขลูกค้าเก่าจริงจึงอาจสูงกว่านี้</span>`
@@ -13524,8 +13559,8 @@ function renderReturnCard(){
     ? 'ลูกค้าเก่านับไม่ซ้ำ "ทั้งเดือน" — คนเดียวกลับมา 3 วันในเดือนเดียวนับเป็น 1 คน จึงน้อยกว่าผลรวมรายวันโดยตั้งใจ • กดที่แถวเพื่อดูรายชื่อลูกค้าของเดือนนั้น'
     : 'เรียงวันเก่า → ใหม่ • กดที่แถวเพื่อดูรายละเอียดและรายชื่อลูกค้าของวันนั้น';
   let html = `<thead><tr><th>${isM ? 'เดือน' : 'วันที่'}</th><th style="text-align:right">ลูกค้าเก่า</th><th style="text-align:right">ลูกค้าใหม่</th><th style="text-align:right">Order</th>`
-           + '<th style="text-align:right">ยอดลูกค้าเก่า</th><th style="text-align:right">ยอดรวม</th><th style="text-align:right">% ของยอดรวม</th></tr></thead><tbody>';
-  if(!rows.length) html += '<tr><td colspan="7" style="color:var(--text-muted)">ช่วงนี้ยังไม่มีออเดอร์</td></tr>';
+           + '<th style="text-align:right">ยอดลูกค้าเก่า</th><th style="text-align:right">ยอดรวม</th><th style="text-align:right">% ของยอดรวม</th><th style="text-align:right">% ซื้อทาง LINE</th></tr></thead><tbody>';
+  if(!rows.length) html += '<tr><td colspan="8" style="color:var(--text-muted)">ช่วงนี้ยังไม่มีออเดอร์</td></tr>';
   rows.forEach(d => {
     const r = retSafe(d);
     const open = retExpandedRow === d.id;
@@ -13533,12 +13568,12 @@ function renderReturnCard(){
           + `<td>${impEsc(d.label)}${open ? ' ▾' : ''}</td>`
           + `<td class="num">${fmtNum(r.customers)}</td><td class="num">${fmtNum(r.newCustomers)}</td><td class="num">${fmtNum(r.orders)}</td>`
           + `<td class="num">${fmtBaht(r.sales)}</td><td class="num">${fmtBaht(d.sales)}</td>`
-          + `<td class="num">${retPctTxt(r.pct)}</td></tr>`;
+          + `<td class="num">${retPctTxt(r.pct)}</td><td class="num">${retPctTxt(retLinePct(d))}</td></tr>`;
     if(open){
       const cust = r.list.map(c =>
         `<tr><td>${impEsc(c.name)}</td><td>${c.phone ? clPhoneFmt(c.phone) : '—'}</td>`
         + `<td>${c.first}</td><td class="num">${fmtNum(c.orders)}</td><td class="num">${fmtBaht(c.sales)}</td></tr>`).join('');
-      html += `<tr class="detail-row"><td colspan="7">`
+      html += `<tr class="detail-row"><td colspan="8">`
         + `<div style="padding:6px 2px 10px;">`
         + `<div style="font-size:13px;margin-bottom:8px;line-height:1.9;">`
         + `<b>${impEsc(d.label)}</b><br>`
